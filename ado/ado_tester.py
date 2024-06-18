@@ -1,0 +1,56 @@
+from ado_abx import ADOClient, Project, GitRepo, Environment, KubernetesEndpoint, ServiceEndpoint
+
+
+
+_client = ADOClient()
+
+_project = Project()
+_project.Name = "test19"
+_project.Description = "my test18 project"
+#_response = _client.getProjectList()
+#_response = _client.getProjectList_dict()
+_response = _client.getProject('alpha')
+#_response = _client.createProject(_project)
+#_response = _client.deleteProject("beta")
+
+_repo = GitRepo()
+_repo.Name = "myrepo1"
+_repo.ProjectId = "test"   
+#_response = _client.getRepositoryList("test")
+#_response = _client.getRepository('test', 'test')
+#_response = _client.createRepository(_repo)
+
+
+_envinronment = Environment()
+_envinronment.Name = "env10"
+_envinronment.Description = "the desciption"
+_envinronment.ProjectId = 'alpha'
+#_response = _client.getEnvironmentList("alpha")
+#_response = _client.getEnvironment("alpha", 'env1')
+#_response = _client.createEnvironment(_envinronment)
+
+
+_k8sep = KubernetesEndpoint()
+_k8sep.ProjectId = 'alpha'
+_k8sep.EnvironmentId = 'env1'
+_k8sep.Name = 'test1'
+_k8sep.Namespace = 'alpha'
+_k8sep.ClusterName = 'tap1' 
+_k8sep.ServiceEndpointId = '38e4c67f-d96e-4a20-b6f9-6c82a5f110dd'
+
+#_response = _client.getResourceList('alpha', 1)
+#_response = _client.getKubernetesResource('alpha', 'env1', 'alpha')
+#_response = _client.getServiceEndpointList('alpha')
+#_response = _client.createKubernetesResource(_k8sep)
+
+_sep = ServiceEndpoint()
+_sep.Name = 'k8s-test'
+_sep.ProjectId = 'alpha'
+_sep.Type = 'kubernetes'
+_sep.Url = 'https://192.168.41.56:6443'
+_sep.ApiToken = "ZXlKaGJHY2lPaUpTVXpJMU5pSXNJbXRwWkNJNkltWnBPVTVSWmxkVlJITm9MV3d5UmtwelUyUmlVRjlRV21Kd2NIVkhja0phZGpsbVlYSTJjRzVJTm5jaWZRLmV5SnBjM01pT2lKcmRXSmxjbTVsZEdWekwzTmxjblpwWTJWaFkyTnZkVzUwSWl3aWEzVmlaWEp1WlhSbGN5NXBieTl6WlhKMmFXTmxZV05qYjNWdWRDOXVZVzFsYzNCaFkyVWlPaUpyZFdKbExYTjVjM1JsYlNJc0ltdDFZbVZ5Ym1WMFpYTXVhVzh2YzJWeWRtbGpaV0ZqWTI5MWJuUXZjMlZqY21WMExtNWhiV1VpT2lKaFpHMXBiaTExYzJWeUxYTmxZM0psZENJc0ltdDFZbVZ5Ym1WMFpYTXVhVzh2YzJWeWRtbGpaV0ZqWTI5MWJuUXZjMlZ5ZG1salpTMWhZMk52ZFc1MExtNWhiV1VpT2lKaFpHMXBiaTExYzJWeUlpd2lhM1ZpWlhKdVpYUmxjeTVwYnk5elpYSjJhV05sWVdOamIzVnVkQzl6WlhKMmFXTmxMV0ZqWTI5MWJuUXVkV2xrSWpvaVpUaGtNR1JsWkdVdFpqTTVaUzAwWkRRNUxXSmxaRE10T1RFeVpqUmpZMlZtTkdVeUlpd2ljM1ZpSWpvaWMzbHpkR1Z0T25ObGNuWnBZMlZoWTJOdmRXNTBPbXQxWW1VdGMzbHpkR1Z0T21Ga2JXbHVMWFZ6WlhJaWZRLmpuNXdTMWdvNFRNcXExdE5fZGNRUEM4NTJvcEk3dGVWLVkxSUdvZGdKOHRCZVl5R1NxckFkWXFOUXdRN0FfQnNnUkc3U3VpaHZ3a1VvSzVIcU01aHRid2FvT0ZteTh0cUsxckNsTmE1Um03ZUU5cU1BdTQwTWFzUEdtZldzNHNFM3g5dUM2X2RBaDNNMlotNnQ0V3BxeFdSWk5uMVJuTnEzLS1XTjcwOGZFbnJDams5YURmUUFOc0NReUstVUNnRFFVOXZwX1NOY1JBbWV5Uld3empOcXBVc1ZwLVMwbzd0N1BzeGlkUElHei1MU1VhdU0wSlZmN0k0eFM2amNqN3c2Qkk5TW91dF9kU3RobHhWWS1JaVVucGdPWDctNFY5dXBmQVA4aGlJNTZnR2tka21JTWdrQm5NNFdvVEcwUmlNdGZobS1SQU9kN2lWeXAyS2t4MEQ5QQ=="
+_sep.Certificate = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUM2akNDQWRLZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFWTVJNd0VRWURWUVFERXdwcmRXSmwKY201bGRHVnpNQjRYRFRJME1EWXhNekF4TWpnek4xb1hEVE0wTURZeE1UQXhNek16TjFvd0ZURVRNQkVHQTFVRQpBeE1LYTNWaVpYSnVaWFJsY3pDQ0FTSXdEUVlKS29aSWh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBTUhMClN0SmMrdkt4OUhpdytweE1OdG5kSXplWnZISGhhWEJSSVFNdUZ4N0E4SWRQMGNrdVY0MllEQ2NuU3dGZlZVelkKWmt6cEhjcXdxZDAxV3FKRENhajVEL3lVVnRFYnJYRHYvZWovNTd0b2ZaZTBWNUxqSFNqdGRHNnpnd3IyTDJZVwpNdG4xcEIwbStTVGg2elE0bzRibFNqUW5VZndPOFhhOFF6cGhLY1plNnhMMWNzMmJFd2Y2QUMzSGZ6OXN1NlhHCnRWWTU4UWt3T24yZVJhY0ZjOXFlclRVNDFhZUdWZ1lSSXpzZE9UOElVVmttSlp1UHVBSW1vbGM4WUpHVExyb20Kb3A2YjEzYmIwbHpSeTAzNUhGWFZhQXBPM2FNakZUTXlUNHlCUGgzRjcwZ204aDNuY2xUY29UYStIZjd1VXBJMQpJZEtTbmwyaCtMbmovZzRabThVQ0F3RUFBYU5GTUVNd0RnWURWUjBQQVFIL0JBUURBZ0trTUJJR0ExVWRFd0VCCi93UUlNQVlCQWY4Q0FRQXdIUVlEVlIwT0JCWUVGSWNYOTJoU3d1S0xDWUJjZUhSK21OVWV2TTJhTUEwR0NTcUcKU0liM0RRRUJDd1VBQTRJQkFRQ04ybnR5MWhld1lvOUxraGhObjFIZVd0SmlLRHhtZ0xHREsrSDJ1UE9qZmkwagprVzRna0xac25hVCs1R2E2M3BKT0FQQU9XZkxNM1RVcGN3cTJGTmowcjlOUzF6RzhETXBURGQxcURBdFZ1c1VLCmlBdlpIZlJ3OWU5QXpXKytaSUJWS1p0dUlFTXZ0RHlBaWc2VWxaQ0IrMXVqeW1IUGZhd3VlQUpDSytoSmpGdGQKQ09LK3NHQTVHVG1LdjFSS0xRRmhvRnlGb1cvbFRmSjFKMnpZYmJCcUc5aHRpTVV4NzM2TURoQVVONktoY1lLWQpmclhBeWVXZ0k4SWFrcFF6eVhNbUFwQ1d4WDRoWjFxbDRURDJOdTJrK0NQdGNtRWdwako0VHRHa3FoQkIxWHJLCkVhZXJaN2szT1BrK1lyMEFPVmVDa2pPU1ZqSEhhWGFEdVhhbFozSzIKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo="
+#_response = _client.createServiceEndpoint(_sep)
+
+print(_response)
+_client = None
