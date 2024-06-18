@@ -2,7 +2,7 @@ from ado_abx import ADOClient, Project, GitRepo, Environment, KubernetesEndpoint
 
 
 
-_client = ADOClient()
+_client = ADOClient(organisation_url='http://azuredevops.ad.home.local/DefaultCollection', access_token='e4t7gerblbfziblu4y7lzdjccvsmkdnzehymnczbz4odctb6rzuq')
 
 _project = Project()
 _project.Name = "test19"

@@ -89,8 +89,8 @@ provides project control and associated attributes including
 - Kubernetes services
 """
 class ADOClient:
-    __access_token='e4t7gerblbfziblu4y7lzdjccvsmkdnzehymnczbz4odctb6rzuq'
-    __organisation_url='http://azuredevops.ad.home.local/DefaultCollection'
+    __access_token = None
+    __organisation_url = None
     __api_version = "7.1-preview"
     __timeout = 900
  
