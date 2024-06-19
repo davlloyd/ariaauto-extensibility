@@ -1,4 +1,4 @@
-import json, time, requests
+import json, requests
 from datetime import datetime
 from urllib.error import URLError, HTTPError
 

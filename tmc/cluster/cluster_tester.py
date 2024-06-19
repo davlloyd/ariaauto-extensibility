@@ -1,7 +1,8 @@
 from cluster_abx import TMCClient, Cluster
-from enum import Enum
-_client = TMCClient()
+from cluster_abx_actions import TKGSClient
 
+
+_client = TMCClient()
 
 _cluster = Cluster()
 _cluster.Name = 'home-test-1'
@@ -12,3 +13,5 @@ _cluster.Provisioner = 'test'
 #_response = _client.deleteCluster('home-test-1', 'test', 'supervisor1')
 #print(_response)
 
+_k8sclient = TKGSClient()
+_k8sclient.getClusterKubeconfig('home-test-1', 'test')
