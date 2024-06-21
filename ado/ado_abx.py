@@ -1,3 +1,21 @@
+"""
+Service:        Azure DevOps Aria ABX Extension Script
+Version:        1.0.1
+Description:    Through ABX custom objects this script allows for the operational control
+                of Azure DevOps objects including
+                - projects
+                - environments
+                - service endpoints
+                - repositories
+                The purpose of this is to allow ADO to be integrated with systems also managed by Aria
+                such as allowing a Kubernetes Cluster to ba assigned as a an endpoint into a ADO project
+Changelog:      
+        1.0.1   - removed authorization from the Service Endpoint Class
+
+                
+"""
+
+
 import json, time, requests
 from urllib.error import URLError, HTTPError
 
@@ -47,7 +65,7 @@ def abxHandler(context, inputs):
     return outputs
 
 
-# Secondary handler
+# Secondary handler for day two ops of projects
 def actionHandler(context, inputs):
     """
         This function handles various actions based on the input parameters.
@@ -63,6 +81,30 @@ def actionHandler(context, inputs):
     action = inputs.get("action")
     outputs = []
     _client = ADOClient()
+
+# Envirnonment CRUD handler
+def abxHandler_Environments(content, inputs):
+    action = inputs.get("action")
+    outputs = []
+
+
+# Endpoint CRUD handler
+def abxHandler_Endpoint(content, inputs):
+    action = inputs.get("action")
+    outputs = []
+
+
+
+# Kubernetes Resource CRUD handler
+def abxHandler_KubernetesResource(content, inputs):
+    action = inputs.get("action")
+    outputs = []
+
+
+# Repository CRUD handler
+def abxHandler_Repository(content, inputs):
+    action = inputs.get("action")
+    outputs = []
 
 
 # extracts current project data to feed into the abx output variable
@@ -104,16 +146,6 @@ class ADOClient:
     # Configure the web client to access ADO
     def __configureclient(self) -> json:
         print(f"Intilising Client")
-
-        # try:
-        #     _url = f"{self.__organisation_url}?api-version={self.__api_version}"
-        #     _password_mgr = HTTPPasswordMgrWithDefaultRealm()
-        #     _password_mgr.add_password(None, _url, 'Basic', self.__access_token)
-        #     install_opener(build_opener(HTTPBasicAuthHandler(_password_mgr)))
-        # except HTTPError as e:
-        #     print(f'Error code: {e.code}')
-        # except URLError as e:
-        #     print(f'URL Error: {e.reason}')
 
 
     # Standard set of headers
@@ -527,13 +559,12 @@ class ServiceEndpoint:
     Name = None
     Type = None
     Url = None
-    Authorization = None
     ProjectId = None
     ApiToken = None
     Certificate = None
 
 
-class KubernetesEndpoint:
+class KubernetesResource:
     Id = None
     Name = None
     ClusterName = None

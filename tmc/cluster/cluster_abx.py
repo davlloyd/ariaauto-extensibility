@@ -1,6 +1,28 @@
-import json, requests
-from datetime import datetime
+"""
+Service:        Tanzu Mission Controller cluster controller
+Version:        1.0.4
+Description:    Through ABX custom objects this script allows for the operational control
+                of TMC clusters. This is structured to be a universal controller for all support platforms
+                in TMC. This includes
+                - VMware TKGs (supported)
+                - VMware TKGm (to be determined if there is demand)
+                - VMware AKS (coming)
+                - VMware EKS (coming)
+                The purpose of this is to allow TMC cluster consumption to be simplified
+Changelog:      
+        1.0.1   - Added wait routine for cluster provisioning to complete prior to completing task
+                - Added more logging
+        1.0.2   - Cleaned up logging and output processing
+        1.0.3   - changed field phase to status and added provisioner field
+        1.0.4   - Added support for getting admin kubeconfig
+"""
+
+
+import json, requests, time, rsa
+from datetime import timezone, datetime
 from urllib.error import URLError, HTTPError
+
+timeout = 885
 
 # Main handler for ABX actions
 def abxHandler(context, inputs):
@@ -17,6 +39,7 @@ def abxHandler(context, inputs):
 
     outputs = inputs
     op = inputs["__metadata"]["operation"]
+    print (f"Running operational request type: {op}")
 
     _tmc_host = context.getSecret(inputs['tmc_host'])
     _tmc_username = context.getSecret(inputs['tmc_username'])
@@ -48,6 +71,7 @@ def abxHandler(context, inputs):
 
 # process inputs into platform specific settings
 def processInputs(inputs):    
+    print(f"Processing inputs")
     _cluster = Cluster()
     _cluster.Name = inputs['name']
     _cluster.Description = inputs['description']
@@ -62,6 +86,7 @@ def processInputs(inputs):
 
     match (inputs['platform']):
         case 'tkgs':
+            print('tkg values processing')
             _cluster.Provisioner = TKGValues.provisioner(inputs['clustergroup'])
             _cluster.Version = TKGValues.release(inputs['version'])            
             _cluster.NodeSize = TKGValues.vmclass(inputs['nodesize'])
@@ -76,31 +101,25 @@ def processInputs(inputs):
 
 # extracts current cluster data to feed into the abx output variable
 def processClusterResponse(inputs, response):
+    print('Processing cluster response')
     _status = {}
     match (inputs['platform']):        
         case 'tkgs':
-            if inputs["__metadata"]["operation"] == 'create':
-                _clusterref = 'tanzuKubernetesCluster'
-            else:
-                _clusterref = 'cluster'
-
-            _status['name'] = response[_clusterref]['fullName']['name']
-            _status['managementcluster'] = response[_clusterref]['fullName']['managementClusterName']
-            _status['description'] = response[_clusterref]['meta']['description']
-            _status['clustergroup'] = response[_clusterref]['spec']['clusterGroupName']
-            _status['controlplanereplicas'] = response[_clusterref]['spec']['topology']['controlPlane']['replicas']
-            _status['workernodecount'] = response[_clusterref]['spec']['topology']['nodePools'][0]['spec']['replicas']
-            _status['tkr'] = response[_clusterref]['spec']['topology']['version'] # platform specific value so not in cluster schema
-            _status['provisioner'] = response[_clusterref]['fullName']['provisionerName'] # platform specific value so not in cluster schema
-            for _entry in response[_clusterref]['spec']['topology']['variables']:
+            _status['name'] = response['cluster']['fullName']['name']
+            _status['managementcluster'] = response['cluster']['fullName']['managementClusterName']
+            _status['description'] = response['cluster']['meta']['description']
+            _status['clustergroup'] = response['cluster']['spec']['clusterGroupName']
+            _status['controlplanereplicas'] = response['cluster']['spec']['topology']['controlPlane']['replicas']
+            _status['workernodecount'] = response['cluster']['spec']['topology']['nodePools'][0]['spec']['replicas']
+            _status['tkr'] = response['cluster']['spec']['topology']['version'] # platform specific value so not in cluster schema
+            _status['provisioner'] = response['cluster']['fullName']['provisionerName'] # platform specific value so not in cluster schema
+            for _entry in response['cluster']['spec']['topology']['variables']:
                 match _entry['name']:
                     case "storageClass":
                         _status['storageclass'] = _entry['value'] # platform specific value so not in cluster schema
                     case "vmClass":
                         _status['vmclass'] = _entry['value'] # platform specific value so not in cluster schema
-            _status['phase'] = response['tanzuKubernetesCluster']['status']['phase']
-            #_status['health'] = response['tanzuKubernetesCluster']['status']['health']
-            _status['health'] = 'unset'
+            _status['status'] = response['cluster']['status']['phase']
         case 'eks':
             print('eks to be done')
         case 'aks':
@@ -141,7 +160,7 @@ class TMCClient:
 
     # General HTTP Get query
     def __get(self, url):
-        print(f"Executing HTTP Get")
+        print(f"Executing HTTP Get with url: {url}")
         self.refreshToken()
         try:
             _headers = {
@@ -153,11 +172,11 @@ class TMCClient:
             }   
             
             with requests.get(url, headers=_headers) as _response:
-                print(f"Status: {_response.status_code}")
                 if _response.status_code == 200:
                     _item = json.loads(_response.content)
                     return _item
                 else:
+                    print(f"Status Code issue: {_response.status_code}")
                     return None
 
         except HTTPError as e:
@@ -170,7 +189,7 @@ class TMCClient:
     
     # general HTTP Post. Requires data payload in JSON format
     def __post(self, url, data):
-        print(f"Executing HTTP Post")
+        print(f"Executing HTTP Post with url: {url}")
         self.refreshToken()
         try:
             _body = json.dumps(data).encode('utf-8')
@@ -183,11 +202,11 @@ class TMCClient:
             }
 
             with requests.post(url, headers=_headers, data=_body) as _response:
-                print(f"Status: {_response.status_code}")
                 if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
                     _item = json.loads(_response.text)
                     return _item
                 else:
+                    print(f"Status Code issue: {_response.status_code}")
                     return None
 
         except HTTPError as e:
@@ -199,7 +218,7 @@ class TMCClient:
 
     # general HTTP Put. Requires data payload in JSON format
     def __put(self, url, data):
-        print(f"Executing HTTP Post")
+        print(f"Executing HTTP Post with url {url}")
         self.refreshToken()
         try:
             _body = json.dumps(data).encode('utf-8')
@@ -212,11 +231,11 @@ class TMCClient:
             }
 
             with requests.put(url, headers=_headers, data=_body) as _response:
-                print(f"Status: {_response.status_code}")
                 if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
                     _item = json.loads(_response.text)
                     return _item
                 else:
+                    print(f"Status Code issue: {_response.status_code}")
                     return None
 
         except HTTPError as e:
@@ -228,7 +247,7 @@ class TMCClient:
 
     # general HTTP delete routine
     def __delete(self, url):
-        print(f"Executing HTTP Delete")
+        print(f"Executing HTTP Delete with url {url}")
         self.refreshToken()
         try:
             _headers = {
@@ -240,11 +259,11 @@ class TMCClient:
             }
 
             with requests.delete(url, headers=_headers, auth=('', self.__access_token)) as _response:
-                print(f"Status: {_response.status_code}")
                 if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
                     _item = json.loads(_response.text)
                     return _item
                 else:
+                    print(f"Status Code issue: {_response.status_code}")
                     return None
         except HTTPError as e:
             print(f'Error code: {e.code}')
@@ -272,18 +291,18 @@ class TMCClient:
 
         try:
             with requests.get(_url, headers=_headers, allow_redirects=False) as _response:
-                print(f"Status Code: {_response.status_code}")
                 if _response.status_code == 302:
                     _location = _response.headers['location'].split('=')[1]
                     self.__auth_code = _location.split('&')[0]
                     return self.__auth_code
                 else:
+                    print(f"Status Code Issue: {_response.status_code}")
                     return None
 
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'HTTP Error: {e.code} with reason: {e.reason}')
         except URLError as e:
-            print(f'URL Error: client_id{e.reason}')
+            print(f'URL Error: {e.code} with reason: {e.reason}')
 
         return None
 
@@ -303,16 +322,17 @@ class TMCClient:
 
         try:
             with requests.post(_url, data=_data, allow_redirects=False) as _response:
-                print(f"Status Code: {_response.status_code}")
                 if _response.status_code == 200:
                     _values = json.loads(_response.text)
                     self.__access_token = _values['access_token']
                     self.__refresh_token = _values['refresh_token']
                     self.__id_token = _values['id_token']
+                else:
+                   print(f"Status Code issue: {_response.status_code}")
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'HTTP Error: {e.code} with reason: {e.reason}')
         except URLError as e:
-            print(f'URL Error: client_id{e.reason}')
+            print(f'URL Error: {e.code} with reason: {e.reason}')
 
         return None
 
@@ -337,9 +357,9 @@ class TMCClient:
                     self.__refresh_token = _values['refresh_token']
                     self.__id_token = _values['id_token']
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'HTTP Error: {e.code} with reason: {e.reason}')
         except URLError as e:
-            print(f'URL Error: client_id{e.reason}')
+            print(f'URL Error: {e.code} with reason: {e.reason}')
 
         return None
 
@@ -352,7 +372,7 @@ class TMCClient:
 
     # Create cluster with TMC
     def createCluster(self, cluster):
-        print(f"Create new cluster")
+        print(f"Create new cluster: {cluster.Name}")
         
         match (cluster.Platform):
             case 'tkgs':
@@ -366,7 +386,21 @@ class TMCClient:
                 _url = None
         
         if _url is not None:
-            return self.__post(_url, _data)
+            
+            print('Waiting for cluster provisioning to complete')
+            _start = time.time() 
+            if (_response := self.__post(_url, _data)) is not None:
+                while (time.time() - _start) < timeout:  
+                    _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
+                    _status = _response['cluster']['status']['phase']
+                    if _status != "READY": # CREATING, ATTACH_COMPLETE
+                        time.sleep(15)  # Sleep for 15 seconds before checking again
+                    else:
+                        print(f'Cluster ready /n{_response}')
+                        return _response
+
+                print(f'Cluster provisioning timeout exceed')
+                return _response
         else:
             return None
 
@@ -506,6 +540,26 @@ class TMCClient:
                 }
         return _template
 
+    # Get clusters admin Kubeconfig file
+    def getClusterAdminKubeConfig(self, clustername, provisionerName, managementCluster):
+        print(f"Get cluster admin kubeconfig")
+
+        _url = f'https://{self.__hostname}/v1alpha1/clusters/{clustername}/adminkubeconfig'
+        _url += f'?fullName.managementClusterName={managementCluster}&fullName.provisionerName={provisionerName}'
+
+        publicKey, privateKey = rsa.newkeys(2048)
+        #keytimestamp = datetime.now().isoformat()        
+        keytimestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        _url += f'&encryptionKey.PublicKeyPem={publicKey}'
+        _url += f'&encryptionKey.timestamp={keytimestamp}'
+
+        if (_response := self.__get(_url)) is not None:
+            _kubeconfig = rsa.decrypt(_response['kubeconfig'], privateKey).decode()
+            print(f'Key returned {_kubeconfig}')
+            return _kubeconfig
+        else:
+            return None
 
 
 

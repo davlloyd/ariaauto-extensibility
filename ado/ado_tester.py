@@ -30,7 +30,7 @@ _envinronment.ProjectId = 'alpha'
 #_response = _client.createEnvironment(_envinronment)
 
 
-_k8sep = KubernetesEndpoint()
+_k8sep = KubernetesResource()
 _k8sep.ProjectId = 'alpha'
 _k8sep.EnvironmentId = 'env1'
 _k8sep.Name = 'test1'

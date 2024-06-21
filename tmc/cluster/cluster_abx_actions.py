@@ -1,6 +1,17 @@
-import requests, json, yaml
-import base64
+"""
+Service:        Tanzu Mission Controller cluster actions controller
+Version:        1.0.1
+Description:    Controller for the day 2 actions for the cluster 
+Changelog:      
+        1.0.1   - Updated to use kubenernetes module
+                
+"""
+
+import requests, json, yaml, base64
+from kubernetes import config, client
+from kubernetes.client.rest import ApiException
 from urllib.error import URLError, HTTPError
+
 
 # Main handler for ABX actions
 def abxHandler(context, inputs):
@@ -30,6 +41,8 @@ def abxHandler(context, inputs):
             _provisioner = inputs['provisioner']
             if(_response := _client.getClusterKubeconfig(clustername=_clustername, provisioner=_provisioner)) is not None:
                 outputs['kubeconfig'] = _response.kubeconfig
+
+    return outputs
 
 
 
@@ -86,15 +99,32 @@ class TKGSClient:
     def checkClusterAccess(self, kubeconfig):
         print(f'Access check with kubeconfig')
 
-        _url = f"{kubeconfig.api_url}/api"
         try:
-            _response = requests.get(_url, cert=('tls.crt', 'tls.key'), verify='ca.crt')        
-            if _response.status_code == 200:
+            config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
+            _client = client.AppsV1Api()
+            if(_response := _client.list_namespaced_deployment('kube-system')) is not None:
                 return True
             else:
                 return False
         except:
             return False
+
+    # create service account and return associated secret
+    def createServiceAccount(self, kubeconfig):
+        print(f'Create service account and associated secret')
+
+        config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
+        _client = client.CoreV1Api()
+        namespace = 'kube-system'
+        body = {'metadata': {'name': 'ado-admin'} }
+        pretty = 'true'
+        try:
+            if(_response := _client.create_namespaced_service_account(namespace,body, pretty=pretty)) is not None:
+                print(_response)
+                return _response
+        except ApiException as e:
+            print("Exception when calling CoreV1Api->create_namespaced_service_account: %s\n" % e)
+            return None
 
 
     # Get the kubconfig for the specified cluster
@@ -103,7 +133,7 @@ class TKGSClient:
         
         _url = f"{self.__supervisor_url}/api/v1/namespaces/{provisioner}/secrets/{clustername}-kubeconfig"
         if (_response := self.__get(_url)) is not None:
-            _data = base64.b64decode(_response['data']['value']).decode("utf-8")
+            _data = base64.b64decode(_response['data']['value'])  #.decode("utf-8")
             _kubeconf = Kubeconfig(_data)
             if self.checkClusterAccess(_kubeconf):
                 print('Cluster access confirmed')
@@ -115,6 +145,7 @@ class TKGSClient:
 
 class Kubeconfig:
     kubeconfig = None
+    kubeconfig_dict = None
     api_url = None
     ca_data = None
     user_cert = None
@@ -122,21 +153,13 @@ class Kubeconfig:
 
     # Class initialising method
     def __init__(self, kubeconfig):
-        self.kubeconfig = kubeconfig
         _kube = yaml.safe_load(kubeconfig)
+        self.kubeconfig_dict = _kube 
         self.api_url = _kube['clusters'][0]['cluster']['server']
         self.ca_data = base64.b64decode(_kube['clusters'][0]['cluster']['certificate-authority-data']).decode("utf-8")
         self.user_cert = base64.b64decode(_kube['users'][0]['user']['client-certificate-data']).decode("utf-8")
         self.user_key = base64.b64decode(_kube['users'][0]['user']['client-key-data']).decode("utf-8")
+        self.kubeconfig = kubeconfig
 
-        f = open("tls.crt", "w")
-        f.write(self.user_cert)
-        f.close()
-        f = open("tls.key", "w")
-        f.write(self.user_key)
-        f.close()
-        f = open("ca.crt", "w")
-        f.write(self.ca_data)
-        f.close()
 
 

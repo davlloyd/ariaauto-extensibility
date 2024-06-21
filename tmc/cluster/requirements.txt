@@ -1,2 +1,4 @@
 requests
-enum
+pyyaml
+rsa
+kubernetes
