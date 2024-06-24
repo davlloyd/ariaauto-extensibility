@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.0.6
+Version:        1.0.7
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -17,6 +17,7 @@ Changelog:
         1.0.4   - Added support for getting admin kubeconfig
         1.0.5   - Added vRO action support
         1.0.6   - Fixed vro action input processing
+        1.0.7   - Added management server queries
 """
 
 
@@ -342,7 +343,9 @@ class TMCClient:
             filter = '*'
         print(f'Get a list of clusters wth filter {filter}')
         _url = f'https://{self.__hostname}/v1alpha1/clusters?searchScope.name={filter}'
-        return self.__get(_url)
+        if (_response := self.__get(_url)) is not None:
+            _response = _response["clusters"]
+        return _response
         
 
     # Create cluster with TMC
@@ -540,7 +543,9 @@ class TMCClient:
     def getClusterGroupList(self):
         print(f'Getting a list of clustergroups')
         _url = f'https://{self.__hostname}/v1alpha1/clustergroups?searchScope.name=*'
-        return self.__get(_url)
+        if (_response := self.__get(_url)) is not None:
+            _response = _response["clusterGroups"]
+        return _response
 
 
     # Get a list of provisioners
@@ -549,7 +554,28 @@ class TMCClient:
         if provisioner is None:
             provisioner = '*'
         _url = f'https://{self.__hostname}/v1alpha1/managementclusters/{managementcluster}/provisioners?searchScope.name={provisioner}'
-        return self.__get(_url)
+        if (_response := self.__get(_url)) is not None:
+            _response = _response["provisioners"]
+        return _response
+
+
+    # Get a list of Management Clusters
+    def getManagementClusterList(self, managementcluster=None, includeAttached=False):
+        print(f'Get a list of provsioners for management cluster {managementcluster}')
+        if managementcluster is None:
+            managementcluster = '*'
+        _url = f'https://{self.__hostname}/v1alpha1/managementclusters?searchScope.name={managementcluster}'
+        _response = self.__get(_url)
+        
+        _clusters=[]
+        if not includeAttached:
+            for _item in _response['managementClusters']:
+                if _item['fullName']['name'] != 'attached':
+                    _clusters.append(_item)
+        else:
+            _clusters = _response['managementClusters']
+
+        return _clusters
 
 
     # Get a list of cluster options
@@ -653,6 +679,9 @@ def processInputs(inputs):
     _cluster.ClusterGroup = inputs['clustergroup']
     _cluster.WorkerNodeCount = inputs['workernodecount']
     _cluster.Platform = inputs['platform']
+    _cluster.Version = inputs['version']            
+    _cluster.NodeSize = inputs['nodesize']
+    _cluster.StorageClass = inputs['storagetype']
 
     if inputs['highavailability']:
         _cluster.ControlPlaneReplicas = 3
@@ -662,11 +691,11 @@ def processInputs(inputs):
     match (inputs['platform']):
         case 'tkgs':
             print('tkg values processing')
-            _cluster.Provisioner = TKGValues.provisioner(inputs['clustergroup'])
-            _cluster.Version = TKGValues.release(inputs['version'])            
-            _cluster.NodeSize = TKGValues.vmclass(inputs['nodesize'])
-            _cluster.ManagementCluster = TKGValues.managementcluster(inputs['controller'])
-            _cluster.StorageClass = TKGValues.storageclass(inputs['storagetype'])
+            _cluster.ManagementCluster = inputs['controller']
+            if inputs['clustergroup'] != "unset":
+                _cluster.Provisioner = inputs['provisioner']
+            else:
+                _cluster.Provisioner = TKGValues.provisioner(inputs['clustergroup'])
         case 'eks':
             print('eks to be done')
         case 'aks':
@@ -723,15 +752,18 @@ def handler(context, inputs):
     _client = TMCClient(hostname=_host, username=_username, password=_password)
 
     match _action:
+        case "form-getmanagementclusterlist":
+            if(_response := _client.getManagementClusterList()) is not None:
+                _outputs = [c["fullName"]["name"] for c in _response]
         case "form-getclustergrouplist":
             if(_response := _client.getClusterGroupList()) is not None:
-                _outputs = [c["fullName"]["name"] for c in _response["clusterGroups"]]
+                _outputs = [c["fullName"]["name"] for c in _response]
         case "form-getclusterlist":
             if(_response := _client.getClusterList()) is not None:
-                _outputs = [c["fullName"]["name"] for c in _response["clusters"]]
+                _outputs = [c["fullName"]["name"] for c in _response]
         case "form-getprovisionerlist":
             if (_response := _client.getProvisionerList(_managementcluster)) is not None:        
-                _outputs = [c["fullName"]["name"] for c in _response["provisioners"]]
+                _outputs = [c["fullName"]["name"] for c in _response]
         case "form-getversionlist":
             _outputs =  _client.getKubernetesReleases(_platform, _managementcluster, _provisioner)
         case "form-getnodesizelist":

@@ -26,10 +26,13 @@ _cluster.Provisioner = 'test'
 #_response = _client.getStorageClasses('tkgs', 'supervisor1', 'tap')
 #_response = _client.getProvisionerList('supervisor1')
 
+#inputs = {'action':'form-getmanagementclusterlist'}
 #inputs = {'action':'form-getclustergrouplist'}
 #inputs = {'action':'form-getclusterlist'}
-#inputs = {'action':'form-getprovisionerlist'}
-inputs = {'action':'form-getnodesizelist','provisioner':'test','managementcluster':'supervisor1'}
+inputs = {'action':'form-getprovisionerlist'}
+#inputs = {'action':'form-getnodesizelist','provisioner':'test','managementcluster':'supervisor1'}
 
 _response = cluster_abx.handler('', inputs)
+
+#_response = _client.getManagementClusterList(includeAttached=False)
 print(_response)
