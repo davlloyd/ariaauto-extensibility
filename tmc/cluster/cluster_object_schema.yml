@@ -1,0 +1,86 @@
+properties:
+  name:
+    type: string
+    title: Name
+    description: Name of cluster
+  status:
+    type: string
+    title: Status
+    description: Current status of the cluster
+    readOnly: true
+    default: unset
+  version:
+    type: string
+    title: Version
+    description: Kubernetes Release to configure the cluster with
+  nodesize:
+    type: string
+    title: Node Size
+    description: The Virtual Machine Class to configure the cluster nodes with
+    format: ''
+    enum:
+      - small
+      - medium
+      - large
+    default: small
+  platform:
+    type: string
+    title: Platform
+    description: Target platfor for cluster
+    format: ''
+    enum:
+      - tkgs
+      - eks
+      - aks
+    default: tkgs
+  controller:
+    type: string
+    title: Controller
+    description: Name of the subscription or management service for clusrter
+    default: supervisor1
+  kubeconfig:
+    type: string
+    title: KubeConfig
+    description: Access config for cluster
+    readOnly: true
+    format: ''
+    default: unset
+  description:
+    type: string
+    title: Description
+    description: Description of cluster purpose
+  provisioner:
+    type: string
+    title: Provisioner
+    description: cluster provisioner
+    readOnly: true
+    format: ''
+    default: unset
+  storagetype:
+    type: string
+    title: Storage Type
+    description: Storage class to configure cluster with
+    default: general-usage
+  clustergroup:
+    type: string
+    title: Cluster Group
+    description: Cluster Group to manage cluster
+  workernodecount:
+    type: integer
+    title: Worker Node Count
+    description: Number of worker nodes for cluster
+    maximum: 8
+    minimum: 1
+    default: 2
+  highavailability:
+    type: boolean
+    title: High Availability
+    description: Highly Available Controller Configuration
+  controlplanereplicas:
+    type: integer
+    title: Control Plane Replicas
+    description: Number of controller VMs to configure for cluster
+    enum:
+      - 1
+      - 3
+    default: 1

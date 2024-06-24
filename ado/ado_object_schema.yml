@@ -1,0 +1,54 @@
+properties:
+  url:
+    type: string
+    title: Url
+    description: Team project access URL
+    readOnly: true
+    format: ''
+    default: unset
+  name:
+    type: string
+    title: Name
+    description: Name of Project
+  state:
+    type: string
+    title: State
+    description: Current state of project
+    readOnly: true
+    format: ''
+    default: unset
+  projectid:
+    type: string
+    title: ID
+    description: Unique identifier for Project
+    readOnly: true
+    format: ''
+    default: unset
+  visibility:
+    type: string
+    title: Visibility
+    description: Project visibility public/private. Local deployments of ADO only support private
+    format: ''
+    default: private
+  description:
+    type: string
+    title: Description
+    description: Description of project
+    format: ''
+  processtemplate:
+    type: string
+    title: Process Template
+    description: The DevOps model applied to the project
+    oneOf:
+      - title: Scrum
+        const: 6b724908-ef14-45cf-84f8-768b5384da45
+    format: ''
+    default: 6b724908-ef14-45cf-84f8-768b5384da45
+  sourcecontroltype:
+    type: string
+    title: Source Control Type
+    description: Source control type to apply to project
+    format: ''
+    enum:
+      - Git
+    default: Git
