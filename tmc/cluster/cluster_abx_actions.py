@@ -1,13 +1,15 @@
 """
 Service:        Tanzu Mission Controller cluster actions controller
-Version:        1.0.1
+Version:        1.0.2
 Description:    Controller for the day 2 actions for the cluster 
 Changelog:      
         1.0.1   - Updated to use kubenernetes module
+        1.0.2   - added ability to create serviceaccounts and clusterrolebindings
                 
 """
 
 import requests, json, yaml, base64
+import kubernetes
 from kubernetes import config, client
 from kubernetes.client.rest import ApiException
 from urllib.error import URLError, HTTPError
@@ -27,6 +29,7 @@ def abxHandler(context, inputs):
     """
 
     outputs = inputs
+    print(f'request metadata: {inputs["__metadata"]}')
     op = inputs["__metadata"]["operation"]
 
     _sv_url = context.getSecret(inputs['k8s-sv1-url'])
@@ -39,8 +42,15 @@ def abxHandler(context, inputs):
             outputs['kubeconfig-admin'] = True
             _clustername = inputs['name']
             _provisioner = inputs['provisioner']
-            if(_response := _client.getClusterKubeconfig(clustername=_clustername, provisioner=_provisioner)) is not None:
-                outputs['kubeconfig'] = _response.kubeconfig
+            _accountname = 'token-admin'
+            _namespace = 'kube-system'
+
+            if(_kubeconfig := _client.getClusterKubeconfig(clustername=_clustername, provisioner=_provisioner)) is not None:
+                outputs['kubeconfig'] = _kubeconfig.kubeconfig
+                if(_token := _client.createServiceAccount(_kubeconfig, _namespace, _accountname)) is not None:
+                    _response = _client.createClusterRoleBinding(_kubeconfig, _accountname, _namespace, 'cluster-admin')
+                    outputs['token'] = _token
+            
 
     return outputs
 
@@ -109,21 +119,45 @@ class TKGSClient:
         except:
             return False
 
+
     # create service account and return associated secret
-    def createServiceAccount(self, kubeconfig):
+    def createServiceAccount(self, kubeconfig, namespace='kube-system', accountname='ado-admin'):
         print(f'Create service account and associated secret')
 
         config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
         _client = client.CoreV1Api()
-        namespace = 'kube-system'
-        body = {'metadata': {'name': 'ado-admin'} }
-        pretty = 'true'
+        _body = {'metadata': {'name': accountname} }
+        _pretty = 'true'
         try:
-            if(_response := _client.create_namespaced_service_account(namespace,body, pretty=pretty)) is not None:
-                print(_response)
-                return _response
+            if(_response := _client.create_namespaced_service_account(namespace, _body, pretty=_pretty)) is not None:
+                _secret = client.V1Secret(
+                    api_version="v1",
+                    kind="Secret",
+                    metadata=client.V1ObjectMeta(name=accountname, annotations={'kubernetes.io/service-account.name': accountname}),
+                    type="kubernetes.io/service-account-token"
+                )                
+                _token = _client.create_namespaced_secret(namespace=namespace, body=_secret)
+                return _token
         except ApiException as e:
             print("Exception when calling CoreV1Api->create_namespaced_service_account: %s\n" % e)
+            return None
+
+
+    # Create clusterrolebinding
+    def createClusterRoleBinding(self, kubeconfig, subject, subjectnamespace, role):
+        print(f'Create clusterrolebinding for subject {subject} for role {role}')
+
+        config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
+        _client = client.RbacAuthorizationV1Api()
+        _body = client.V1ClusterRoleBinding(
+            metadata=client.V1ObjectMeta(name=f'{subject}:{role}'),
+            subjects=[client.RbacV1Subject(kind='ServiceAccount', name=subject, namespace=subjectnamespace)],
+            role_ref=client.V1RoleRef(api_group='rbac.authorization.k8s.io', kind='ClusterRole', name=role))
+        try:
+            if(_response := _client.create_cluster_role_binding(body=_body)) is not None:
+                return _response
+        except ApiException as e:
+            print("Exception when calling V1ClusterRoleBinding->create_cluster_role_binding: %s\n" % e)
             return None
 
 

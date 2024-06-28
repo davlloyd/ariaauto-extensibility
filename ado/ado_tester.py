@@ -1,4 +1,4 @@
-from ado_abx import ADOClient, Project, GitRepo, Environment, KubernetesEndpoint, ServiceEndpoint
+from ado_abx import ADOClient, Project, GitRepo, Environment, KubernetesResource, ServiceEndpoint
 
 
 
@@ -22,12 +22,12 @@ _repo.ProjectId = "test"
 
 
 _envinronment = Environment()
-_envinronment.Name = "env10"
+_envinronment.Name = "env11"
 _envinronment.Description = "the desciption"
 _envinronment.ProjectId = 'alpha'
 #_response = _client.getEnvironmentList("alpha")
 #_response = _client.getEnvironment("alpha", 'env1')
-#_response = _client.createEnvironment(_envinronment)
+_response = _client.createEnvironment(_envinronment)
 
 
 _k8sep = KubernetesResource()

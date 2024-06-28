@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.0.7
+Version:        1.11.3
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -10,14 +10,18 @@ Description:    Through ABX custom objects this script allows for the operationa
                 - VMware EKS (coming)
                 The purpose of this is to allow TMC cluster consumption to be simplified
 Changelog:      
-        1.0.1   - Added wait routine for cluster provisioning to complete prior to completing task
+        1.1.0   - Added wait routine for cluster provisioning to complete prior to completing task
                 - Added more logging
-        1.0.2   - Cleaned up logging and output processing
-        1.0.3   - changed field phase to status and added provisioner field
-        1.0.4   - Added support for getting admin kubeconfig
-        1.0.5   - Added vRO action support
-        1.0.6   - Fixed vro action input processing
-        1.0.7   - Added management server queries
+        1.2.0   - Cleaned up logging and output processing
+        1.3.0   - changed field phase to status and added provisioner field
+        1.4.0   - Added support for getting admin kubeconfig
+        1.5.0   - Added vRO action support
+        1.6.0   - Fixed vro action input processing
+        1.7.0   - Added management server queries
+        1.8.0   - cleaned up form call identifiers
+        1.9.0   - added support for vRO custom object
+        1.10.0  - Improved exception handling and logging
+        1.11.0  - Changed cluster inout/output for vRO for more specific naming instead of attemtoed generalisation
 """
 
 
@@ -26,6 +30,7 @@ from datetime import timezone, datetime
 from urllib.error import URLError, HTTPError
 
 timeout = 885
+
 
 
 # Cluster value class
@@ -39,6 +44,7 @@ class Cluster:
     ControlPlaneReplicas = 1
     WorkerNodeCount = 2
     NodeSize = 'best-effort-medium'
+    NodeVersion = '3'   # used to define the OS release when required
     FailureDomain = 'zone1'
     Version = 'v1.26.13+vmware.1-fips.1-tkg.3'
     Platform = 'tkgs'
@@ -147,16 +153,16 @@ class TMCClient:
                     _item = json.loads(_response.content)
                     return _item
                 else:
-                    print(f"Status Code issue: {_response.status_code}")
+                    print(f"Error {_response.status_code} when running http get: {_response.reason} - {_response.text}\n")
                     return None
-
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.reason}')
+            print(f'URL Error code: {e.code} descripton {e.reason}')
 
         return None
     
+
     # general HTTP Post. Requires data payload in JSON format
     def __post(self, url, data):
         print(f"Executing HTTP Post with url: {url}")
@@ -176,13 +182,12 @@ class TMCClient:
                     _item = json.loads(_response.text)
                     return _item
                 else:
-                    print(f"Status Code issue: {_response.status_code}")
+                    print(f"Error {_response.status_code} when running http post: {_response.reason} - {_response.text}\n")
                     return None
-
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.reason}')
+            print(f'URL Error code: {e.code} descripton {e.reason}')
 
         return None
 
@@ -205,13 +210,12 @@ class TMCClient:
                     _item = json.loads(_response.text)
                     return _item
                 else:
-                    print(f"Status Code issue: {_response.status_code}")
+                    print(f"Error {_response.status_code} when running http put: {_response.reason} - {_response.text}\n")
                     return None
-
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.reason}')
+            print(f'URL Error code: {e.code} descripton {e.reason}')
 
         return None
 
@@ -233,14 +237,15 @@ class TMCClient:
                     _item = json.loads(_response.text)
                     return _item
                 else:
-                    print(f"Status Code issue: {_response.status_code}")
+                    print(f"Error {_response.status_code} when running http delete: {_response.reason} - {_response.text}\n")
                     return None
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.reason}')
+            print(f'URL Error code: {e.code} descripton {e.reason}')
 
         return None
+
 
     # Initial access authorization for user/password account
     def authorizeUser(self):
@@ -265,15 +270,16 @@ class TMCClient:
                     self.__auth_code = _location.split('&')[0]
                     return self.__auth_code
                 else:
-                    print(f"Status Code Issue: {_response.status_code}")
+                    print(f"Error when running delete: {_response}\n")
                     return None
 
         except HTTPError as e:
-            print(f'HTTP Error: {e.code} with reason: {e.reason}')
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.code} with reason: {e.reason}')
+            print(f'URL Error code: {e.code} descripton {e.reason}')
 
         return None
+
 
     # Get tokens for site access
     def obtainToken(self):
@@ -296,13 +302,14 @@ class TMCClient:
                     self.__refresh_token = _values['refresh_token']
                     self.__id_token = _values['id_token']
                 else:
-                   print(f"Status Code issue: {_response.status_code}")
+                    print(f"Error when running post: {_response}\n")
         except HTTPError as e:
             print(f'HTTP Error: {e.code} with reason: {e.reason}')
         except URLError as e:
             print(f'URL Error: {e.code} with reason: {e.reason}')
 
         return None
+
 
     # Refresh tokens, needs to be done prior to each call as access token has short expiry
     def refreshToken(self):
@@ -323,29 +330,38 @@ class TMCClient:
                     self.__access_token = _values['access_token']
                     self.__refresh_token = _values['refresh_token']
                     self.__id_token = _values['id_token']
+                    return True
+                else:
+                    print(f"Error when running post: {_response}\n")
         except HTTPError as e:
             print(f'HTTP Error: {e.code} with reason: {e.reason}')
         except URLError as e:
             print(f'URL Error: {e.code} with reason: {e.reason}')
 
-        return None
+        return False
+
 
     # Get specified Cluster Details
     def getCluster(self, clusterName, provisionerName, managementCluster):
         print(f"Get cluster details")
         _url = f'https://{self.__hostname}/v1alpha1/clusters/?fullName.name={clusterName}&fullName.provisionerName={provisionerName}&fullName.managementClusterName={managementCluster}'
-        return self.__get(_url)
+        if (_response := self.__get(_url)) is not None:
+            return _response['cluster']
+        else:
+            return None
 
 
     # Get a list of clusters with filter opton
-    def getClusterList(self, filter=None):
-        if filter is None:
-            filter = '*'
-        print(f'Get a list of clusters wth filter {filter}')
-        _url = f'https://{self.__hostname}/v1alpha1/clusters?searchScope.name={filter}'
+    def getClusterList(self, managementCluster='*', provisionerName='*', clusterName='*'):
+        print(f'Get a list of clusters wth specified filters')
+        _url = f'https://{self.__hostname}/v1alpha1/clusters'
+        _url += f'?searchScope.name={clusterName}'
+        _url += f'&searchScope.provisionerName={provisionerName}'
+        _url += f'&searchScope.managementClusterName={managementCluster}'        
         if (_response := self.__get(_url)) is not None:
-            _response = _response["clusters"]
-        return _response
+            return _response["clusters"]
+        else:   
+            return None
         
 
     # Create cluster with TMC
@@ -363,22 +379,9 @@ class TMCClient:
                 print("aks to be done")
                 _url = None
         
-        if _url is not None:
-            
-            print('Waiting for cluster provisioning to complete')
-            _start = time.time() 
+        if _url is not None: # no platform specified
             if (_response := self.__post(_url, _data)) is not None:
-                while (time.time() - _start) < timeout:  
-                    _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
-                    _status = _response['cluster']['status']['phase']
-                    if _status != "READY": # CREATING, ATTACH_COMPLETE
-                        time.sleep(15)  # Sleep for 15 seconds before checking again
-                    else:
-                        print(f'Cluster ready /n{_response}')
-                        return _response
-
-                print(f'Cluster provisioning timeout exceed')
-                return _response
+                return self.waitClusterReady(cluster)
         else:
             return None
 
@@ -399,9 +402,29 @@ class TMCClient:
                 _url = None
         
         if _url is not None:
-            return self.__put(_url, _data)
+            if (_response := self.__put(_url, _data)) is not None:
+                return self.waitClusterReady(cluster)
         else:
-            return None
+            raise URLError('Could not define URL as no platform specified')
+
+
+    # Wait for cluster to reach Ready state
+    def waitClusterReady(self, cluster):
+        print(f'Waiting for cluster to complete create/update operation')
+
+        _start = time.time() 
+        while (time.time() - _start) < timeout:  
+            _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
+            _status = _response['status']['phase']
+            if _status != "READY": # CREATING, ATTACH_COMPLETE
+                time.sleep(15)  # Sleep for 15 seconds before checking again
+            else:
+                print(f'Cluster ready /n{_response}')
+                return _response
+
+        print(f'Cluster provisioning timeout exceeded')
+        #raise Exception('Cluster create/update operation timeout exceeded')
+        return _response   # doing this in the interim to get over the ABX 15 minute timeout constraint
 
 
     # Delete specified Cluster 
@@ -465,7 +488,7 @@ class TMCClient:
                                     "replicas": cluster.ControlPlaneReplicas,
                                     "osImage": {
                                         "name": "photon",
-                                        "version": "3",
+                                        "version": cluster.NodeVersion,
                                         "arch": "amd64"
                                     }
 
@@ -476,6 +499,11 @@ class TMCClient:
                                             "replicas": cluster.WorkerNodeCount,
                                             "class": "node-pool",
                                             "failureDomain": cluster.FailureDomain,
+                                            "osImage": {
+                                                "name": "photon",
+                                                "version": cluster.NodeVersion,
+                                                "arch": "amd64"
+                                            },
                                             "nodeLabels": {
                                                 "myLabel": "myValue"
                                             },
@@ -638,9 +666,11 @@ def abxHandler(context, inputs):
             outputs: The outputs generated by the ABX handler.
     """
 
-    outputs = inputs
-    op = inputs["__metadata"]["operation"]
-    print (f"Running operational request type: {op}")
+    _outputs = inputs
+    _op = inputs["__metadata"]["operation"]
+    _platform = inputs.get('platform') or 'tkgs'
+
+    print (f"Running operational request type: {_op}")
 
     _tmc_host = context.getSecret(inputs['tmc_host'])
     _tmc_username = context.getSecret(inputs['tmc_username'])
@@ -648,26 +678,26 @@ def abxHandler(context, inputs):
 
     _client = TMCClient(hostname=_tmc_host, username=_tmc_username, password=_tmc_password)
 
-    match op:
+    match _op:
         case "create":
-            outputs['create'] = True
+            _outputs['create'] = True
             _cluster = processInputs(inputs)
             if(_response := _client.createCluster(_cluster)) is not None:
-                outputs.update(processClusterResponse(inputs, _response))
+                _outputs.update(processClusterResponse(_platform, _response))
         case "update":
-            outputs['create'] = True
+            _outputs['update'] = True
             _cluster = processInputs(inputs)
             if(_response := _client.updateCluster(_cluster)) is not None:
-                outputs.update(processClusterResponse(inputs, _response))
+                _outputs.update(processClusterResponse(_platform, _response))
         case "read":
-            outputs['read'] = True
+            _outputs['read'] = True
             if(_response := _client.getCluster(inputs['name'], inputs['provisioner'], inputs['managementcluster'])) is not None:
-                outputs.update(processClusterResponse(inputs, _response))
+                _outputs.update(processClusterResponse(_platform, _response))
         case "delete":
-            outputs['delete'] = True
+            _outputs['delete'] = True
             _response = _client.deleteCluster(inputs['name'], inputs['provisioner'], inputs['managementcluster'])
 
-    return outputs
+    return _outputs
 
 
 # process inputs into platform specific settings
@@ -679,15 +709,10 @@ def processInputs(inputs):
     _cluster.ClusterGroup = inputs['clustergroup']
     _cluster.WorkerNodeCount = inputs['workernodecount']
     _cluster.Platform = inputs['platform']
-    _cluster.Version = inputs['version']            
+    _cluster.Version = inputs['version']
     _cluster.NodeSize = inputs['nodesize']
-    _cluster.StorageClass = inputs['storagetype']
-
-    if inputs['highavailability']:
-        _cluster.ControlPlaneReplicas = 3
-    else:
-        _cluster.ControlPlaneReplicas = 1
-
+    _cluster.StorageClass = inputs['storageclass']
+    _cluster.ControlPlaneReplicas = inputs['controlplanereplicas']
     match (inputs['platform']):
         case 'tkgs':
             print('tkg values processing')
@@ -696,6 +721,10 @@ def processInputs(inputs):
                 _cluster.Provisioner = inputs['provisioner']
             else:
                 _cluster.Provisioner = TKGValues.provisioner(inputs['clustergroup'])
+            if '1.25' in _cluster.Version or '1.26' in _cluster.Version or '1.27' in _cluster.Version:
+                _cluster.NodeVersion = '3'
+            else:
+                _cluster.NodeVersion = '5'
         case 'eks':
             print('eks to be done')
         case 'aks':
@@ -704,26 +733,31 @@ def processInputs(inputs):
 
 
 # extracts current cluster data to feed into the abx output variable
-def processClusterResponse(inputs, response):
+def processClusterResponse(platform, response):
     print('Processing cluster response')
     _status = {}
-    match (inputs['platform']):        
+    _status['name'] = response['fullName']['name']
+    _status['controller'] = response['fullName']['managementClusterName']
+    if 'description' in response['meta']:
+        _status['description'] = response['meta']['description']
+    else:
+        _status['description'] = ''
+    _status['clustergroup'] = response['spec']['clusterGroupName']
+    _status['controlplanereplicas'] = response['spec']['topology']['controlPlane']['replicas']
+    _status['workernodecount'] = response['spec']['topology']['nodePools'][0]['spec']['replicas']
+    _status['version'] = response['spec']['topology']['version'] # platform specific value so not in cluster schema
+    _status['platform'] = platform
+    _status['status'] = response['status']['phase']
+
+    match (platform):        
         case 'tkgs':
-            _status['name'] = response['cluster']['fullName']['name']
-            _status['managementcluster'] = response['cluster']['fullName']['managementClusterName']
-            _status['description'] = response['cluster']['meta']['description']
-            _status['clustergroup'] = response['cluster']['spec']['clusterGroupName']
-            _status['controlplanereplicas'] = response['cluster']['spec']['topology']['controlPlane']['replicas']
-            _status['workernodecount'] = response['cluster']['spec']['topology']['nodePools'][0]['spec']['replicas']
-            _status['tkr'] = response['cluster']['spec']['topology']['version'] # platform specific value so not in cluster schema
-            _status['provisioner'] = response['cluster']['fullName']['provisionerName'] # platform specific value so not in cluster schema
-            for _entry in response['cluster']['spec']['topology']['variables']:
+            _status['provisioner'] = response['fullName']['provisionerName'] # platform specific value so not in cluster schema
+            for _entry in response['spec']['topology']['variables']:
                 match _entry['name']:
                     case "storageClass":
                         _status['storageclass'] = _entry['value'] # platform specific value so not in cluster schema
                     case "vmClass":
-                        _status['vmclass'] = _entry['value'] # platform specific value so not in cluster schema
-            _status['status'] = response['cluster']['status']['phase']
+                        _status['nodesize'] = _entry['value'] # platform specific value so not in cluster schema
         case 'eks':
             print('eks to be done')
         case 'aks':
@@ -734,13 +768,12 @@ def processClusterResponse(inputs, response):
 
 # Handler for vRO Actions
 def handler(context, inputs):
-    print('Execurint vRO Action')
+    print('Executing vRO Action')
 
     _action = inputs["action"]
     print (f"Running orchestrator action: {_action}")
 
-    _outputs = []
-
+    outputs = []
     _host = os.environ.get("host") or 'tmc.home.tanzu.rocks'
     _username = os.environ.get("username") or 'david'
     _password = os.environ.get("password") or 'B3ach8um!'
@@ -752,23 +785,41 @@ def handler(context, inputs):
     _client = TMCClient(hostname=_host, username=_username, password=_password)
 
     match _action:
-        case "form-getmanagementclusterlist":
-            if(_response := _client.getManagementClusterList()) is not None:
-                _outputs = [c["fullName"]["name"] for c in _response]
-        case "form-getclustergrouplist":
-            if(_response := _client.getClusterGroupList()) is not None:
-                _outputs = [c["fullName"]["name"] for c in _response]
-        case "form-getclusterlist":
+        case "cluster-create":
+            _cluster = processInputs(inputs)
+            if(_response := _client.createCluster(_cluster)) is not None:
+                outputs = processClusterResponse(_platform, _response)
+        case "cluster-update":
+            _cluster = processInputs(inputs)
+            if(_response := _client.updateCluster(_cluster)) is not None:
+                outputs = processClusterResponse(_platform, _response)
+        case "cluster-delete":
+            if(_response := _client.deleteCluster(clusterName=inputs['name'], provisionerName=_provisioner, managementCluster=_managementcluster)) is not None:
+                outputs = processClusterResponse(_platform, _response)
+        case "cluster-findall":
             if(_response := _client.getClusterList()) is not None:
-                _outputs = [c["fullName"]["name"] for c in _response]
-        case "form-getprovisionerlist":
+                for _item in _response:
+                    outputs.append(processClusterResponse(_platform, _item))
+        case "cluster-find":
+            if(_response := _client.getClusterList(clusterName=inputs['id'])) is not None:
+                outputs = processClusterResponse(_platform, _response[0])
+        case "form-managementclusterlist":
+            if(_response := _client.getManagementClusterList()) is not None:
+                outputs = [c["fullName"]["name"] for c in _response]
+        case "form-clustergrouplist":
+            if(_response := _client.getClusterGroupList()) is not None:
+                outputs = [c["fullName"]["name"] for c in _response]
+        case "form-clusterlist":
+            if(_response := _client.getClusterList()) is not None:
+                outputs = [c["fullName"]["name"] for c in _response]
+        case "form-provisionerlist":
             if (_response := _client.getProvisionerList(_managementcluster)) is not None:        
-                _outputs = [c["fullName"]["name"] for c in _response]
-        case "form-getversionlist":
-            _outputs =  _client.getKubernetesReleases(_platform, _managementcluster, _provisioner)
-        case "form-getnodesizelist":
-            _outputs = _client.getVirtualMachineClasses(_managementcluster, _provisioner)
+                outputs = [c["fullName"]["name"] for c in _response]
+        case "form-versionlist":
+            outputs =  _client.getKubernetesReleases(_platform, _managementcluster, _provisioner)
+        case "form-nodesizelist":
+            outputs = _client.getVirtualMachineClasses(_managementcluster, _provisioner)
         case "form-storageclasslist":
-            _outputs = _client.getStorageClasses(_platform, _managementcluster, _provisioner)
+            outputs = _client.getStorageClasses(_platform, _managementcluster, _provisioner)
 
-    return _outputs
+    return outputs
