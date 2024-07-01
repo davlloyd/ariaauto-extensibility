@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.3.1
+Version:        1.4.0
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -13,6 +13,7 @@ Changelog:
         1.1.0   - removed authorization from the Service Endpoint Class
         1.2.0   - Added Orchestrator action support
         1.3.0   - Added supports for environment management with ABX
+        1.4.0   - Creating orchestrator actions to manage ADO state
                 
 """
 
@@ -517,12 +518,7 @@ def abxHandler(context, inputs):
     match op:
         case "create":
             outputs['create'] = True
-            _project = Project()
-            _project.Name = inputs['name']
-            _project.Description = inputs['description']
-            _project.ProcessTemplateId = inputs['processtemplate']
-            _project.SourceControlType = inputs['sourcecontroltype']
-            _project.Visibility = inputs['visibility']
+            _project = processProjectInputs(inputs)
             if(_response := _client.createProject(_project)) is not None:
                 outputs.update(processProjectResponse(_response))
         case "update":
@@ -541,20 +537,6 @@ def abxHandler(context, inputs):
 
     return outputs
 
-
-# extracts current project data to feed into the abx output variable
-def processProjectResponse(response):
-    _status = {}
-    _status['name'] = response['name']
-    _status['description'] = response['description']
-    _status['projectid'] = response['id']
-    _status['state'] = response['state']
-    _status['url'] = response['url']
-    _status['description'] = response['description']
-    _status['visbility'] = response['visibility']
-    _status['sourcecontroltype'] = response['capabilities']['versioncontrol']['sourceControlType']
-    _status['processtemplate'] = response['capabilities']['processTemplate']['templateTypeId']
-    return _status
 
 
 # Secondary handler for day two ops of projects
@@ -622,16 +604,51 @@ def abxHandler_Environments(context, inputs):
     return outputs
 
 
+# Popeulate inouts into project class
+def processProjectInputs(inputs):
+    _project = Project()
+    _project.Name = inputs['name']
+    _project.Description = inputs['description']
+    _project.ProcessTemplateId = inputs['processtemplate']
+    _project.SourceControlType = inputs['sourcecontroltype']
+    _project.Visibility = inputs['visibility']
+    return _project
+
 
 # extracts current project data to feed into the abx output variable
+def processProjectResponse(response):
+    _status = {}
+    _status['name'] = response['name']
+    _status['description'] = response['description']
+    _status['projectid'] = response['id']
+    _status['state'] = response['state']
+    _status['url'] = response['url']
+    _status['description'] = response['description']
+    _status['visbility'] = response['visibility']
+    _status['sourcecontroltype'] = response['capabilities']['versioncontrol']['sourceControlType']
+    _status['processtemplate'] = response['capabilities']['processTemplate']['templateTypeId']
+    return _status
+
+
+# extracts current environment data to feed into the abx output variable
 def processEnvironmentResponse(response):
     _status = {}
     _status['name'] = response['name']
-    _status['environmentid'] = response['id']
-    _status['projectid'] = response['project']['id']
+    _status['type'] = response['type']
+    _status['url'] = response['url']
     _status['state'] = True
     return _status
 
+
+# extracts current project data to feed into the abx output variable
+def processEndpointResponse(response):
+    _status = {}
+    _status['name'] = response['name']
+    _status['id'] = response['id']
+    _status['projectid'] = response['serviceEndpointProjectReferences']['name']
+    _status['ready'] = response['isReady']
+    _status['state'] = response['operationStatus']
+    return _status
 
 
 # Endpoint CRUD handler
@@ -672,6 +689,51 @@ def handler(context, inputs):
 
     match _action:
         case "form-projectlist":
+            print (f"Getting project list")
             _outputs = _client.getProjectList_dict
+        case "project-create":
+            _project = processProjectInputs(inputs)
+            if(_response := _client.createProject(_project)) is not None:
+                _outputs.update(processProjectResponse(_response))
+            else:
+                _outputs['state'] = False
+        case "project-read":
+            if(_response := _client.getProject(inputs['name'])) is not None:
+                _outputs.update(processProjectResponse(_response))
+        case "project-delete":
+            if (_response := _client.deleteProject(inputs['name'])) is not None:
+                print(f'project {inputs['name']} deleted')
+            else:
+                print(f'project {inputs['name']} deletion failed')
+            _outputs['state'] = _response
+        case "environment-create":
+            _env = Environment()
+            _env.Name = inputs['name']
+            _env.Description = inputs['description']
+            _env.ProjectId = inputs['projectid']
+            if (_response := _client.createEnvironment(_env)) is not None:
+                _outputs.update(processEnvironmentResponse(_response))
+            else:
+                _outputs['state'] = False
+        case "environment-delete":
+            _project = inputs['project']
+            _env = inputs['environment']
+            if (_response := _client.deleteEnvironment(_project, _env)) is not None:
+                print(f'Environment {_env} connected to project {(_project)} has been deleted')
+            else:
+                print(f'Environment {_env} deletion failed')
+            _outputs['state'] = _response
+        case "endpoint-create":
+            _endpoint = ServiceEndpoint()
+            _endpoint.Name = inputs['name']
+            _endpoint.ProjectId = inputs['project']
+            _endpoint.Type = 'kubernetes'
+            _endpoint.Url = inputs['apiurl']
+            _endpoint.ApiToken = inputs['token']
+            _endpoint.Certificate = inputs['cert']
+            if (_response := _client.createServiceEndpoint(_endpoint)) is not None:
+                _outputs.update(processEndpointResponse(_response))
+            else:
+                _outputs['state'] = False
 
     return _outputs

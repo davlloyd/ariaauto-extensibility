@@ -1,0 +1,79 @@
+inputs:
+  management_cluster_name:
+    type: string
+    default: supervisor1
+    description: The Tanzu Mission Control entry for the TKG Supervisor cluster
+  cluster_name:
+    type: string
+    default: ${"home-" + input.provisioner + "-nnn"}
+    description: The Name of the cluster
+  cluster_description:
+    type: string
+    default: Aria managed cluster
+    description: Description of the cluster to be created
+  control_plane_replicas:
+    type: number
+    default: "1"
+    description: Controller Plane node count
+  worker_node_replicas:
+    type: number
+    default: "3"
+    description: Worker node count
+  ntp_server:
+    type: string
+    default: pool.ntp.org
+    description: NTP Servers to assign to cluster
+  cluster_options:
+    type: object
+    title: Cluster Options
+    $ref: /ref/property-groups/tkgs_values
+    $dynamicDefault: null
+  platform_options:
+    type: object
+    title: Platform Options
+    $ref: /ref/property-groups/tmc_values
+  kubernetes_options:
+    type: object
+    title: Kubernetes Options
+    description: Standard identy settings for Kubernetes
+    $ref: /ref/property-groups/kubernetes_values
+  node_volumes:
+    type: object
+    title: Node Volumes
+    description: Additional volumes to mount to worker nodes
+    $ref: /ref/property-groups/kubernetes_storage_values
+resources:
+  TMC.Cluster.TKGs:
+    type: Cloud.Terraform.Configuration
+    metadata:
+      layoutPosition:
+        - 0
+        - 0
+    properties:
+      variables:
+        username: ${secret.tmc_username}
+        password: ${secret.tmc_password}
+        management_cluster_name: ${input.management_cluster_name}
+        provisioner_name: ${input.cluster_options.provisioner_name}
+        cluster_name: ${input.cluster_name}
+        cluster_description: ${input.cluster_description}
+        cluster_group_name: ${input.platform_options.cluster_group}
+        vm_class: ${input.cluster_options.vm_class}
+        storage_class: ${input.cluster_options.storage_class}
+        kubernetes_version: ${input.cluster_options.kubernetes_version}
+        cluster_class: ${input.cluster_options.cluster_class}
+        service_cidr_block: ${input.kubernetes_options.service_cidr_block}
+        pod_cidr_block: ${input.kubernetes_options.pod_cidr_block}
+        service_domain: ${input.kubernetes_options.service_domain}
+        control_plane_replicas: ${input.control_plane_replicas}
+        worker_node_replicas: ${input.worker_node_replicas}
+        ntp_server: ${input.ntp_server}
+        containerd_disk: ${input.node_volumes.containerd_disk}
+        kubelet_disk: ${input.node_volumes.kubelet_disk}
+      providers: []
+      terraformVersion: 1.0.5
+      configurationSource:
+        repositoryId: 487ecab4-1138-4210-b821-594a4b2f0e26
+        commitId: 0e75410dbfadafd87daedf0e31655b6857cca679
+        sourceDirectory: create_cluster_tkgs
+      environment: {}

@@ -1,4 +1,4 @@
-from ado_abx import ADOClient, Project, GitRepo, Environment, KubernetesResource, ServiceEndpoint
+from ado.ado_abx import ADOClient, Project, GitRepo, Environment, KubernetesResource, ServiceEndpoint
 
 
 

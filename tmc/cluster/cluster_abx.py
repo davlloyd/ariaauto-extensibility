@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.11.3
+Version:        1.12.0
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -22,6 +22,7 @@ Changelog:
         1.9.0   - added support for vRO custom object
         1.10.0  - Improved exception handling and logging
         1.11.0  - Changed cluster inout/output for vRO for more specific naming instead of attemtoed generalisation
+        1.12.0  - Improved security controls for cluster access context
 """
 
 
@@ -29,7 +30,7 @@ import json, requests, time, rsa, os
 from datetime import timezone, datetime
 from urllib.error import URLError, HTTPError
 
-timeout = 885
+timeout = 1740      # ABX timesout at 900 seconds and Orchestrator at 1800 seconds
 
 
 
@@ -186,6 +187,8 @@ class TMCClient:
                     return None
         except HTTPError as e:
             print(f'HTTP Error code: {e.code} descripton {e.reason}')
+            if e.close == 409:
+                raise HTTPError("Can not post request as it wold create a conflict", 409)
         except URLError as e:
             print(f'URL Error code: {e.code} descripton {e.reason}')
 
@@ -214,6 +217,8 @@ class TMCClient:
                     return None
         except HTTPError as e:
             print(f'HTTP Error code: {e.code} descripton {e.reason}')
+            if e.close == 409:
+                raise HTTPError("Can not post request as it wold create a conflict", 409)
         except URLError as e:
             print(f'URL Error code: {e.code} descripton {e.reason}')
 
@@ -381,9 +386,11 @@ class TMCClient:
         
         if _url is not None: # no platform specified
             if (_response := self.__post(_url, _data)) is not None:
-                return self.waitClusterReady(cluster)
-        else:
-            return None
+                if (_cluster := self.waitClusterReady(cluster)) is not None:
+                    print('Cluster provision successfully completed')
+                    return _cluster
+                    
+        return None
 
 
     # Update existing cluster with TMC
@@ -412,14 +419,15 @@ class TMCClient:
     def waitClusterReady(self, cluster):
         print(f'Waiting for cluster to complete create/update operation')
 
+        _response = None
         _start = time.time() 
         while (time.time() - _start) < timeout:  
             _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
             _status = _response['status']['phase']
             if _status != "READY": # CREATING, ATTACH_COMPLETE
-                time.sleep(15)  # Sleep for 15 seconds before checking again
+                time.sleep(25)  # Sleep for 15 seconds before checking again
             else:
-                print(f'Cluster ready /n{_response}')
+                print(f'Cluster ready')
                 return _response
 
         print(f'Cluster provisioning timeout exceeded')
@@ -738,6 +746,7 @@ def processClusterResponse(platform, response):
     _status = {}
     _status['name'] = response['fullName']['name']
     _status['controller'] = response['fullName']['managementClusterName']
+    _status['uid'] = response['meta']['uid']
     if 'description' in response['meta']:
         _status['description'] = response['meta']['description']
     else:
@@ -762,8 +771,9 @@ def processClusterResponse(platform, response):
             print('eks to be done')
         case 'aks':
             print('aks to be done')
-
-    return _status
+    
+    _cluster = json.dumps(_status)
+    return _cluster
 
 
 # Handler for vRO Actions
@@ -795,13 +805,13 @@ def handler(context, inputs):
                 outputs = processClusterResponse(_platform, _response)
         case "cluster-delete":
             if(_response := _client.deleteCluster(clusterName=inputs['name'], provisionerName=_provisioner, managementCluster=_managementcluster)) is not None:
-                outputs = processClusterResponse(_platform, _response)
+                outputs = _response
         case "cluster-findall":
             if(_response := _client.getClusterList()) is not None:
                 for _item in _response:
                     outputs.append(processClusterResponse(_platform, _item))
         case "cluster-find":
-            if(_response := _client.getClusterList(clusterName=inputs['id'])) is not None:
+            if(_response := _client.getClusterList(clusterName=inputs['name'])) is not None:
                 outputs = processClusterResponse(_platform, _response[0])
         case "form-managementclusterlist":
             if(_response := _client.getManagementClusterList()) is not None:
