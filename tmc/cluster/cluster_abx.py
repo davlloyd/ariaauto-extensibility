@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.12.0
+Version:        1.12.1
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -422,13 +422,13 @@ class TMCClient:
         _response = None
         _start = time.time() 
         while (time.time() - _start) < timeout:  
-            _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
-            _status = _response['status']['phase']
-            if _status != "READY": # CREATING, ATTACH_COMPLETE
-                time.sleep(25)  # Sleep for 15 seconds before checking again
-            else:
-                print(f'Cluster ready')
-                return _response
+            if (time.time() - _start) < 180: # Giving the clusters 3 minutes before polling progress
+                _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
+                _status = _response['status']['phase']
+                if _status == "READY": # CREATING, ATTACH_COMPLETE
+                    print(f'Cluster ready')
+                    return _response
+            time.sleep(30)  # Sleep for 30 seconds before checking again
 
         print(f'Cluster provisioning timeout exceeded')
         #raise Exception('Cluster create/update operation timeout exceeded')

@@ -62,22 +62,23 @@ inputs = {'action':'kubeconfig-admin',"name":"home-test-1","provisioner":"test"}
 #inputs = {'action':'form-storageclasslist','provisioner':'test','managementcluster':'supervisor1'}
 #inputs = {'action':'form-getprovisionerlist','provisioner':'test','managementcluster':'supervisor1'}#
 #inputs = {'action':'cluster-delete',"name":"home-test-1","provisioner":"test","managementcluster":"supervisor1"}
+#inputs = {'action':'cluster-find',"name":"home-test-1"}
 
 
-#_response = cluster_abx.handler('', inputs)
+#_response = tmc.cluster.cluster_abx.handler('', inputs)
 
 _response = tmc.cluster.cluster_abx_actions.handler('', inputs)
 _ado = ADOClient(organisation_url='http://azuredevops.ad.home.local/DefaultCollection', access_token='e4t7gerblbfziblu4y7lzdjccvsmkdnzehymnczbz4odctb6rzuq')
 
-_sep = ServiceEndpoint()
-_sep.Name = 'k8s-ado-test'
-_sep.ProjectId = 'alpha'
-_sep.Type = 'kubernetes'
-_sep.Url = _response['apiurl']
-_sep.ApiToken = _response['token']
-_sep.Certificate = _response['cert']
+# _sep = ServiceEndpoint()
+# _sep.Name = 'k8s-ado-test'
+# _sep.ProjectId = 'alpha'
+# _sep.Type = 'kubernetes'
+# _sep.Url = _response['apiurl']
+# _sep.ApiToken = _response['serviceaccounttoken']
+# _sep.Certificate = _response['serviceaccountcertificate']
 
-_response = _ado.createServiceEndpoint(_sep)
+#_response = _ado.createServiceEndpoint(_sep)
 
 #_response = _client.getManagementClusterList(includeAttached=False)
 print(_response)

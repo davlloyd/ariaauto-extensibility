@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.4.0
+Version:        1.5.2
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -14,6 +14,7 @@ Changelog:
         1.2.0   - Added Orchestrator action support
         1.3.0   - Added supports for environment management with ABX
         1.4.0   - Creating orchestrator actions to manage ADO state
+        1.5.0   - Expanded capabitlies around ServiceEndpoint management
                 
 """
 
@@ -32,7 +33,7 @@ provides project control and associated attributes including
 class ADOClient:
     __access_token = None
     __organisation_url = None
-    __api_version = "7.1-preview"
+    __api_version = "7.0-preview"
     __timeout = 900
  
     def __init__(self, organisation_url=None, access_token=None):
@@ -69,13 +70,12 @@ class ADOClient:
                     _item = json.loads(_response.content)
                     return _item
                 else:
+                    print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
                     return None
-
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'Error code: {e.code}, Reason: {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.reason}')
-
+            print(f'Url code: {e.code}, Reason: {e.reason}')
         return None
     
     
@@ -91,18 +91,16 @@ class ADOClient:
 
             with requests.post(url, headers=_headers, data=_body, auth=('', self.__access_token)) as _response:
                 print(f"Status Code: {_response.status_code}")
-                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
-                    _item = json.loads(_response.text)
-                    return _item
+                if _response.status_code in range(200,205):
+                    return json.loads(_response.text)
                 else:
-                    return None
-
+                    print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'Error code: {e.code}, Reason: {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.reason}')
-
+            print(f'Url code: {e.code}, Reason: {e.reason}')
         return None
+
 
     # general HTTP delete routine
     def __delete(self, url):
@@ -115,16 +113,14 @@ class ADOClient:
 
             with requests.delete(url, headers=_headers, auth=('', self.__access_token)) as _response:
                 print(f"Status Code: {_response.status_code}")
-                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
-                    _item = json.loads(_response.text)
-                    return _item
+                if _response.status_code in range(200, 205):
+                    return {"status": "Deletion Completed"}
                 else:
-                    return None
+                    print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
         except HTTPError as e:
-            print(f'Error code: {e.code}')
+            print(f'Error code: {e.code}, Reason: {e.reason}')
         except URLError as e:
-            print(f'URL Error: {e.reason}')
-
+            print(f'Url code: {e.code}, Reason: {e.reason}')
         return None
 
 
@@ -157,7 +153,7 @@ class ADOClient:
         _project_data = {
             "name": project.Name,
             "description": project.Description,
-            "visibility": "private",
+            "visibility": project.Visibility,
             "capabilities": {
                 "versioncontrol": {
                 "sourceControlType": project.SourceControlType
@@ -181,17 +177,22 @@ class ADOClient:
                     _response = self.__get(_response['url'])
                     print(_response)
 
+    # Convert project name to id
+    def getProjectId(self, project):
+        if not isinstance(project, int):
+            if (_response := self.getProject(project)) is not None:
+                return _response['id']
+            else:
+                return None
+        else:
+            return project
+
     
     # Delete a project
     def deleteProject(self, projectId):
-        if not isinstance(projectId, int):
-            _response = self.getProject(projectId)
-            if _response is None:
-                return None
-            else:
-                _id = _response['id']
-        else:
-            _id = projectId
+        print(f"Deleting project {projectId}")
+
+        _id = self.getProjectId(projectId)
         _url = f"{self.__organisation_url}/_apis/projects/{_id}?api-version={self.__api_version}"
 
         _start = time.time()
@@ -251,19 +252,26 @@ class ADOClient:
         return _response
  
 
+    # Get the environment id from an environment name
+    def getEnvironmentId(self, project, environment):
+        if not isinstance(environment, int):
+            _url = f"{self.__organisation_url}/{project}/_apis/pipelines/environments?name={environment}&expands=resourceReferences&api-version={self.__api_version}"
+            if (_response := self.__get(_url)) is not None:
+                if _response['count'] > 0:
+                   return _response['value'][0]['id'] 
+        return None
+
+
     # Get sepcoified environment details
     # requires project name or id and envirnment id
-    def getEnvironment(self, projectId, environmentId) -> json:
-        print(f"Get environment {environmentId} from project {projectId} details")
-        if not isinstance(environmentId, int):
-            _url = f"{self.__organisation_url}/{projectId}/_apis/pipelines/environments?name={environmentId}&expands=resourceReferences&api-version={self.__api_version}"
-            if (_response := self.__get(_url)) is not None:
-                environmentId = _response['value'][0]['id'] 
-            else:
-                return None
+    def getEnvironment(self, project, environment) -> json:
+        print(f"Get environment {environment} from project {project} details")
 
-        _url = f"{self.__organisation_url}/{projectId}/_apis/pipelines/environments/{environmentId}?expands=resourceReferences&api-version={self.__api_version}"
-        return self.__get(_url)
+        if (_id := self.getEnvironmentId(project, environment)) is not None:
+            _url = f"{self.__organisation_url}/{project}/_apis/pipelines/environments/{_id}?expands=resourceReferences&api-version={self.__api_version}"
+            return self.__get(_url)
+        else:
+            return None
 
 
     # Create an environment in a project
@@ -276,9 +284,12 @@ class ADOClient:
         }
         return self.__post(_url, _data)
 
+
     # Delete environment
     def deleteEnvironment(self, projectid, environmentid):
         print(f"Deleting environment {environmentid} in project {projectid}")
+
+        _id = self.getProjectId(projectid)
         if not isinstance(environmentid, int):
             _url = f"{self.__organisation_url}/{projectid}/_apis/pipelines/environments?name={environmentId}&expands=resourceReferences&api-version={self.__api_version}"
             if (_response := self.__get(_url)) is not None:
@@ -300,12 +311,49 @@ class ADOClient:
 
 
     # get a list of  a projects service endpoints
-    def getServiceEndpointList(self, projectId):
-        print(f"Get list of service endpoints for project {projectId}")
-        _url = f"{self.__organisation_url}/{projectId}/_apis/serviceendpoint/endpoints?api-version={self.__api_version}"        
-        if (_response := self.__get(_url)) is not None:
-            _response = _response['value']
-        return _response
+    def getServiceEndpointList(self, projectId=None):
+        print(f"Get list of all service endpoints or those for a specified project")
+        if projectId is None:
+            _endpoints = []
+            for _project in self.getProjectList_dict():
+                _url = f"{self.__organisation_url}/{_project}/_apis/serviceendpoint/endpoints?api-version={self.__api_version}"        
+                if (_response := self.__get(_url)) is not None:
+                    for _ep in _response['value']:
+                        _endpoints.append(_ep)
+        else:                           
+            _url = f"{self.__organisation_url}/{projectId}/_apis/serviceendpoint/endpoints?api-version={self.__api_version}"        
+            if (_response := self.__get(_url)) is not None:
+                _endpoints = _response['value']
+        return _endpoints
+
+
+    # Get the endpointid from an endpoint name
+    def getServiceEndpointId(self, project, endpoint):
+        if not isinstance(endpoint, int):
+            for _item in self.getServiceEndpointList(projectId=project):
+                if _item['name'] == endpoint:
+                    return _item['id']
+                    break
+        else:
+            return endpoint
+        return None
+
+
+    # get a lprojects service endpoint
+    def getServiceEndpoint(self, projectid, endpoint, endpointtype='kubernetes'):
+        print(f"Get endpoint {endpoint} for project {projectid}")
+
+        _endpoint = None
+        if not isinstance(endpoint, int):
+            for _item in self.getServiceEndpointList(projectId=projectid):
+                if _item['name'] == endpoint:
+                    _endpoint = _item
+                    break
+        else:
+            _url = f"{self.__organisation_url}/{projectid}/_apis/serviceendpoint/endpoints/{endpoint}?api-version={self.__api_version}"        
+            if (_response := self.__get(_url)) is not None:
+                _endpoint = _response['value']
+        return _endpoint
 
 
     # Add a new service endpoint
@@ -346,8 +394,22 @@ class ADOClient:
             return None
 
     # Delete the Service Endpoint
-    def deleteServiceEndpoint(self):
-        return None
+    def deleteServiceEndpoint(self, project, endpoint):
+        print(f"Deleting endpoint {endpoint} in project {project}")
+
+        _projid = self.getProjectId(project)
+        _envid = self.getServiceEndpointId(project, endpoint)
+
+        if _projid is not None and _envid is not None:
+            _url = f"{self.__organisation_url}/_apis/serviceendpoint/endpoints/{_envid}?projectIds={_projid}&api-version={self.__api_version}"
+            if (_response := self.__delete(_url)) is not None:
+                print(f"Endpoint deleted")
+                return {"status":"DELETED"}
+            else:
+                return {"status":"FAILED"}
+        else:
+                return {"status":"Environment unknown"}
+
 
     # Get the kubernetes resource details
     def getKubernetesResource(self, projectId, environmentId, resourceId):
@@ -618,26 +680,52 @@ def processProjectInputs(inputs):
 # extracts current project data to feed into the abx output variable
 def processProjectResponse(response):
     _status = {}
+    _status['id'] = response['id']
     _status['name'] = response['name']
-    _status['description'] = response['description']
-    _status['projectid'] = response['id']
+    if 'description' in response.keys():
+        _status['description'] = response['description']
+    else:
+        _status['description'] = 'Produced by Aria'
     _status['state'] = response['state']
-    _status['url'] = response['url']
-    _status['description'] = response['description']
+    #_status['url'] = response['url']
     _status['visbility'] = response['visibility']
     _status['sourcecontroltype'] = response['capabilities']['versioncontrol']['sourceControlType']
     _status['processtemplate'] = response['capabilities']['processTemplate']['templateTypeId']
-    return _status
+    _project = json.dumps(_status)
+    return _project
+
+
+
+# extracts current environment data to feed into the abx output variable
+def processEnvironmentInputs(inputs):
+    _env = Environment()
+    _env.Name = inputs['name']
+    _env.Description = inputs['description']
+    _env.ProjectId = inputs['projectid']
+    return _env
 
 
 # extracts current environment data to feed into the abx output variable
 def processEnvironmentResponse(response):
     _status = {}
+    _status['id'] = response['id']
     _status['name'] = response['name']
-    _status['type'] = response['type']
-    _status['url'] = response['url']
-    _status['state'] = True
+    _status['description'] = response['description']
+    _status['project'] = response['project']['name']
+    _status = json.dumps(_status)
     return _status
+
+
+# Process the inputs for the endpoints
+def processEndpointInputs(inputs):
+    _endpoint = ServiceEndpoint()
+    _endpoint.Name = inputs['name']
+    _endpoint.ProjectId = inputs['project']
+    _endpoint.Type = inputs['type']
+    _endpoint.Url = inputs['apiurl']
+    _endpoint.ApiToken = inputs['token']
+    _endpoint.Certificate = inputs['certificate']
+    return _endpoint
 
 
 # extracts current project data to feed into the abx output variable
@@ -645,11 +733,12 @@ def processEndpointResponse(response):
     _status = {}
     _status['name'] = response['name']
     _status['id'] = response['id']
-    _status['projectid'] = response['serviceEndpointProjectReferences']['name']
+    _status['project'] = response['serviceEndpointProjectReferences'][0]['projectReference']['name']
     _status['ready'] = response['isReady']
-    _status['state'] = response['operationStatus']
+    _status['apiurl'] = response['url']
+    _status['type'] = response['type']
+    _status = json.dumps(_status)
     return _status
-
 
 # Endpoint CRUD handler
 def abxHandler_Endpoint(content, inputs):
@@ -679,7 +768,6 @@ def handler(context, inputs):
     print (f"Running orchestrator action: {_action}")
 
     _outputs = []
-
     _token = os.environ.get("adAccessToken") or 'e4t7gerblbfziblu4y7lzdjccvsmkdnzehymnczbz4odctb6rzuq'
     _url = os.environ.get("adOrgUrl") or 'http://azuredevops.ad.home.local/DefaultCollection'
 
@@ -688,52 +776,82 @@ def handler(context, inputs):
     _client = ADOClient(organisation_url=_url, access_token=_token)
 
     match _action:
-        case "form-projectlist":
-            print (f"Getting project list")
-            _outputs = _client.getProjectList_dict
         case "project-create":
+            print(f"Creating project")
             _project = processProjectInputs(inputs)
             if(_response := _client.createProject(_project)) is not None:
-                _outputs.update(processProjectResponse(_response))
-            else:
-                _outputs['state'] = False
-        case "project-read":
+                _outputs = processProjectResponse(_response)
+        case "project-get":
+            print(f"retrieving project {inputs['name']}")
             if(_response := _client.getProject(inputs['name'])) is not None:
-                _outputs.update(processProjectResponse(_response))
+                _outputs = processProjectResponse(_response)
+        case "project-list":
+            print(f"Getting project list")
+            _outputs = _client.getProjectList_dict()
         case "project-delete":
+            print(f"Deleting project {inputs['name']}")
             if (_response := _client.deleteProject(inputs['name'])) is not None:
-                print(f'project {inputs['name']} deleted')
+                print(f"project {inputs['name']} deleted")
+                _outputs = {'state':'deleted'}
             else:
-                print(f'project {inputs['name']} deletion failed')
-            _outputs['state'] = _response
+                print(f"project {inputs['name']} deletion failed")
+                _outputs = {'state':'deletion failed'}
         case "environment-create":
-            _env = Environment()
-            _env.Name = inputs['name']
-            _env.Description = inputs['description']
-            _env.ProjectId = inputs['projectid']
+            print (f"Creating an environment")
+            _env = processEnvironmentInputs(inputs)
             if (_response := _client.createEnvironment(_env)) is not None:
-                _outputs.update(processEnvironmentResponse(_response))
+                _outputs = processEnvironmentResponse(_response)
             else:
                 _outputs['state'] = False
+        case "environment-get":
+            _project = inputs['project']
+            _env = inputs['environment']
+            print(f"retrieving environment {_env} for project {_project}")
+            if (_response := _client.getEnvironment(project=_project, environment=_env)) is not None:
+                _outputs = processEnvironmentResponse(_response)
+            else:
+                _outputs.append({"status":"Unable to rerieve environment"})
+        case "environment-list":
+            _project = inputs['project']
+            print (f"Getting project {_project} environment list")
+            if(_response := _client.getEnvironmentList(_project)) is not None:
+                _outputs = [c["name"] for c in _response]
         case "environment-delete":
             _project = inputs['project']
             _env = inputs['environment']
+            print(f"Deleting environment {_env} for project {_project}")
             if (_response := _client.deleteEnvironment(_project, _env)) is not None:
-                print(f'Environment {_env} connected to project {(_project)} has been deleted')
+                print(f'Environment {_env} connected to project {_project} has been deleted')
             else:
                 print(f'Environment {_env} deletion failed')
             _outputs['state'] = _response
         case "endpoint-create":
-            _endpoint = ServiceEndpoint()
-            _endpoint.Name = inputs['name']
-            _endpoint.ProjectId = inputs['project']
-            _endpoint.Type = 'kubernetes'
-            _endpoint.Url = inputs['apiurl']
-            _endpoint.ApiToken = inputs['token']
-            _endpoint.Certificate = inputs['cert']
+            print(f"Creating endpoint")
+            _endpoint = processEndpointInputs(inputs)
             if (_response := _client.createServiceEndpoint(_endpoint)) is not None:
-                _outputs.update(processEndpointResponse(_response))
+                _outputs = processEndpointResponse(_response)
             else:
-                _outputs['state'] = False
-
+                if _outputs.count > 0:
+                    _outputs['status'] = {"status":"Inputs not well formed"}
+        case "endpoint-get":
+            _project = inputs['project']
+            _endpoint = inputs['name']
+            print(f"Getting Project {_project} endpoint {_endpoint}")
+            if (_response := _client.getServiceEndpoint(_project, _endpoint)) is not None:
+                _outputs = processEndpointResponse(_response)
+        case "endpoint-list":
+            print(f"Retrieving endpoint")
+            if 'project' in inputs.keys():
+                _response = _client.getServiceEndpointList(inputs['project'])
+            else:
+                _response = _client.getServiceEndpointList() 
+            
+            if _response is not None:
+                for _ep in _response:
+                    _outputs.append(processEndpointResponse(_ep))
+        case "endpoint-delete":
+            _project = inputs['project']
+            _endpoint = inputs['name']
+            print(f"Deleting endpoint {_endpoint} from Project {_project}")
+            _outputs = _client.deleteServiceEndpoint(_project, _endpoint)
     return _outputs

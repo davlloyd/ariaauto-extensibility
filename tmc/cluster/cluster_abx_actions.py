@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster actions controller
-Version:        1.3.1
+Version:        1.3.3
 Description:    Controller for the day 2 actions for the cluster 
 Changelog:      
         1.1.0   - Updated to use kubenernetes module
@@ -113,27 +113,33 @@ class TKGSClient:
         _token = None
 
         try:
-            if (_sa := _client.read_namespaced_service_account(name=accountname, namespace=namespace)) is None:
-                if(_response := _client.create_namespaced_service_account(namespace, _body, pretty=_pretty)) is not None:
-                    _secret = client.V1Secret(
-                        api_version="v1",
-                        kind="Secret",
-                        metadata=client.V1ObjectMeta(name=accountname, annotations={'kubernetes.io/service-account.name': accountname}),
-                        type="kubernetes.io/service-account-token"
-                    )                
-                    _secret = _client.create_namespaced_secret(namespace=namespace, body=_secret)
+            if(_response := _client.create_namespaced_service_account(namespace, _body, pretty=_pretty)) is not None:
+                _secret = client.V1Secret(
+                    api_version="v1",
+                    kind="Secret",
+                    metadata=client.V1ObjectMeta(name=accountname, annotations={'kubernetes.io/service-account.name': accountname}),
+                    type="kubernetes.io/service-account-token"
+                )                
+                _secret = _client.create_namespaced_secret(namespace=namespace, body=_secret)
+                #_secretdata = json.dumps(_secret.to_str())
+                _tokencert = _secret.data['ca.crt']
+                _token = _secret.data['token']
+                return _token, _tokencert
             else:
+                return None
+        except ApiException as e:
+            if e.reason == "Conflict":
                 print("Service already account exists, retrieving secret")
                 if (_secret := _client.read_namespaced_secret(name=accountname, namespace=namespace)) is not None:
                     print("Secret retrieved")
+                    _tokencert = _secret.data['ca.crt']
+                    _token = _secret.data['token']
+                    return _token, _tokencert
                 else:
                     print("Failed to retrieve secret")
-            _secretdata = json.dumps(_secret.to_str())
-            _tokencert = _secret.data['ca.crt']
-            _token = _secret.data['token']
-            return _token, _tokencert
-        except ApiException as e:
+
             print("Exception when calling CoreV1Api->create_namespaced_service_account: %s\n" % e)
+
             return None
         except Exception as e:
             print("Exception when calling CoreV1Api->create_namespaced_service_account: %s\n" % e)
@@ -175,6 +181,7 @@ class TKGSClient:
             return _kubeconf
         else:
             return None
+
 
 
 
@@ -240,21 +247,22 @@ def handler(context, inputs):
             _provisioner = inputs['provisioner']
             _accountname = 'token-admin'
             _namespace = 'kube-system'
-
+            _creds['cluster'] = _clustername
+            _creds["provisioner"] = _provisioner
             if(_kubeconfig := _client.getClusterKubeconfig(clustername=_clustername, provisioner=_provisioner)) is not None:
                 _creds['kubeconfig'] = _kubeconfig.kubeconfig_b64
                 _creds['apiurl'] = _kubeconfig.api_url
             if(_token := _client.createServiceAccount(_kubeconfig, _namespace, _accountname)) is not None:
                 _response = _client.createClusterRoleBinding(_kubeconfig, _accountname, _namespace, 'cluster-admin')
-                _creds['namespace'] = _namespace
-                _creds['serviceaccount'] = _accountname
-                _creds['token'] = _token[0]
-                _creds['cert'] = _token[1]
+                _creds['serviceaccountnamespace'] = _namespace
+                _creds['serviceaccountname'] = _accountname
+                _creds['serviceaccounttoken'] = _token[0]
+                _creds['serviceaccountcertificate'] = _token[1]
 
             if len(_creds) > 0: 
                 outputs = _creds
 
 
     print(f'Response complete')
-    return outputs
+    return json.dumps(outputs)
 
