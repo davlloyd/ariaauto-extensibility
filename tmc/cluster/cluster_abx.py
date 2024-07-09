@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.12.1
+Version:        1.13.2
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -23,6 +23,7 @@ Changelog:
         1.10.0  - Improved exception handling and logging
         1.11.0  - Changed cluster inout/output for vRO for more specific naming instead of attemtoed generalisation
         1.12.0  - Improved security controls for cluster access context
+        1.13.0  - Extending clustergroup support to enable control in Orchestrator
 """
 
 
@@ -431,8 +432,7 @@ class TMCClient:
             time.sleep(30)  # Sleep for 30 seconds before checking again
 
         print(f'Cluster provisioning timeout exceeded')
-        #raise Exception('Cluster create/update operation timeout exceeded')
-        return _response   # doing this in the interim to get over the ABX 15 minute timeout constraint
+        raise Exception('Cluster create/update operation timeout exceeded')
 
 
     # Delete specified Cluster 
@@ -575,13 +575,28 @@ class TMCClient:
         else:
             return None
 
-    # get a list of the clustergroups
-    def getClusterGroupList(self):
-        print(f'Getting a list of clustergroups')
-        _url = f'https://{self.__hostname}/v1alpha1/clustergroups?searchScope.name=*'
+
+    # get the specified or a list of the clustergroups
+    def getClusterGroupList(self, clustergroup=None):
+        if clustergroup is None:
+            clustergroup = '*'
+        print(f'Getting a list of clustergroups with name {clustergroup}')
+        _url = f'https://{self.__hostname}/v1alpha1/clustergroups?searchScope.name={clustergroup}'
         if (_response := self.__get(_url)) is not None:
             _response = _response["clusterGroups"]
         return _response
+
+    # Get a list of clusters within a clustergroup
+    def getClusterGroupClusters(self, clustergroup):
+        print(f'Getting a list of clusters within clustergroup: {clustergroup}')
+        
+        _clusterlist = []
+        for _cluster in self.getClusterList():
+            if _cluster['spec']['clusterGroupName'].lower() == clustergroup.lower():
+                _clusterlist.append(_cluster)
+
+        return _clusterlist
+
 
 
     # Get a list of provisioners
@@ -772,8 +787,21 @@ def processClusterResponse(platform, response):
         case 'aks':
             print('aks to be done')
     
-    _cluster = json.dumps(_status)
-    return _cluster
+    return json.dumps(_status)
+
+
+# Process the response from a clustergroup query
+def processClusterGroupResponse(response):
+    print('Processing clustergroup response')
+    _status = {}
+    _status['name'] = response['fullName']['name']
+    if 'description' in response['meta']:
+        _status['description'] = response['meta']['description']
+    else:
+        _status['description'] = ''
+
+    return json.dumps(_status)
+
 
 
 # Handler for vRO Actions
@@ -813,6 +841,17 @@ def handler(context, inputs):
         case "cluster-find":
             if(_response := _client.getClusterList(clusterName=inputs['name'])) is not None:
                 outputs = processClusterResponse(_platform, _response[0])
+        case "clustergroup-find":
+            if(_response := _client.getClusterGroupList(inputs['name'])) is not None:
+                outputs.append(processClusterGroupResponse(_response[0]))
+        case "clustergroup-findall":
+            if(_response := _client.getClusterGroupList()) is not None:
+                for _item in _response:
+                    outputs.append(processClusterGroupResponse(_item))
+        case "clustergroup-cluster-list":
+            if(_response := _client.getClusterGroupClusters(inputs['name'])) is not None:
+                for _item in _response:
+                    outputs.append(processClusterResponse(_platform, _item))
         case "form-managementclusterlist":
             if(_response := _client.getManagementClusterList()) is not None:
                 outputs = [c["fullName"]["name"] for c in _response]
