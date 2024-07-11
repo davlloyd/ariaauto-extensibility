@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.5.2
+Version:        1.6.4
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -15,6 +15,7 @@ Changelog:
         1.3.0   - Added supports for environment management with ABX
         1.4.0   - Creating orchestrator actions to manage ADO state
         1.5.0   - Expanded capabitlies around ServiceEndpoint management
+        1.6.0   - Environment controls for Orchestrator added
                 
 """
 
@@ -244,12 +245,22 @@ class ADOClient:
 
 
     # Get list of environments associated with project
-    def getEnvironmentList(self, projectId) -> json:
+    def getEnvironmentList(self, projectId=None) -> json:
         print(f"Get list of environments from project {projectId} details")
-        _url = f"{self.__organisation_url}/{projectId}/_apis/pipelines/environments?api-version={self.__api_version}"        
-        if (_response := self.__get(_url)) is not None:
-            _response = _response['value']
-        return _response
+
+        _envs = None
+        if projectId is None:
+            for _project in self.getProjectList_dict():
+                _url = f"{self.__organisation_url}/{_project}/_apis/pipelines/environments?api-version={self.__api_version}"
+                if (_response := self.__get(_url)) is not None:
+                    _envs = []
+                    for _env in _response['value']:
+                        _envs.append(_env)
+        else:        
+            _url = f"{self.__organisation_url}/{projectId}/_apis/pipelines/environments?api-version={self.__api_version}"
+            if (_response := self.__get(_url)) is not None:
+                _envs = _response['value']
+        return _envs
  
 
     # Get the environment id from an environment name
@@ -701,7 +712,7 @@ def processEnvironmentInputs(inputs):
     _env = Environment()
     _env.Name = inputs['name']
     _env.Description = inputs['description']
-    _env.ProjectId = inputs['projectid']
+    _env.ProjectId = inputs['project']
     return _env
 
 
@@ -808,14 +819,25 @@ def handler(context, inputs):
             _env = inputs['environment']
             print(f"retrieving environment {_env} for project {_project}")
             if (_response := _client.getEnvironment(project=_project, environment=_env)) is not None:
+                if _response['project']['name'] is None:
+                    _response['project']['name'] = _client.getProject(_response['project']['id'])['name']
                 _outputs = processEnvironmentResponse(_response)
             else:
                 _outputs.append({"status":"Unable to rerieve environment"})
         case "environment-list":
-            _project = inputs['project']
-            print (f"Getting project {_project} environment list")
-            if(_response := _client.getEnvironmentList(_project)) is not None:
-                _outputs = [c["name"] for c in _response]
+            if 'project' in inputs.keys():
+                _project = inputs['project']
+                print (f"Getting project {_project} environment list")
+                _response = _client.getEnvironmentList(_project)
+            else:
+                print (f"Getting environment list")
+                _response = _client.getEnvironmentList()
+
+            if _response is not None:
+                for _item in _response:
+                    if _item['project']['name'] is None:
+                        _item['project']['name'] = _client.getProject(_item['project']['id'])['name']
+                    _outputs.append(processEnvironmentResponse(_item))
         case "environment-delete":
             _project = inputs['project']
             _env = inputs['environment']

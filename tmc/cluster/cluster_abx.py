@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.13.2
+Version:        1.14.0
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -24,6 +24,7 @@ Changelog:
         1.11.0  - Changed cluster inout/output for vRO for more specific naming instead of attemtoed generalisation
         1.12.0  - Improved security controls for cluster access context
         1.13.0  - Extending clustergroup support to enable control in Orchestrator
+        1.14.0  - Added custom disk sizing
 """
 
 
@@ -31,7 +32,7 @@ import json, requests, time, rsa, os
 from datetime import timezone, datetime
 from urllib.error import URLError, HTTPError
 
-timeout = 1740      # ABX timesout at 900 seconds and Orchestrator at 1800 seconds
+timeout = 2300      # ABX timesout at 900 seconds and Orchestrator at 1800 seconds
 
 
 
@@ -50,6 +51,8 @@ class Cluster:
     FailureDomain = 'zone1'
     Version = 'v1.26.13+vmware.1-fips.1-tkg.3'
     Platform = 'tkgs'
+    KubeletDisk = '20G'
+    ContainerDisk = '20G'
 
 
     def __init__(self, name=None, provisioner=None, clusterGroup=None):
@@ -423,7 +426,7 @@ class TMCClient:
         _response = None
         _start = time.time() 
         while (time.time() - _start) < timeout:  
-            if (time.time() - _start) < 180: # Giving the clusters 3 minutes before polling progress
+            if (time.time() - _start) > 180: # Giving the clusters 3 minutes before polling progress
                 _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
                 _status = _response['status']['phase']
                 if _status == "READY": # CREATING, ATTACH_COMPLETE
@@ -546,7 +549,29 @@ class TMCClient:
                                     {
                                         "name": "ntp",
                                         "value": "au.pool.ntp.org"
-                                    }
+                                    },
+                        {
+                            "name": "nodePoolVolumes",
+                            "value": [
+                                {
+                                    "capacity": {
+                                        "storage": cluster.ContainerDisk
+                                    },
+                                    "mountPath": "/var/lib/containerd",
+                                    "name": "containerd",
+                                    "storageClass": "general-usage"
+                                },
+                                {
+                                    "capacity": {
+                                        "storage": cluster.KubeletDisk
+                                    },
+                                    "mountPath": "/var/lib/kubelet",
+                                    "name": "kubelet",
+                                    "storageClass": "general-usage"
+                                }
+                            ]
+                        },
+
                                 ]
                             }
                         }
@@ -736,6 +761,8 @@ def processInputs(inputs):
     _cluster.NodeSize = inputs['nodesize']
     _cluster.StorageClass = inputs['storageclass']
     _cluster.ControlPlaneReplicas = inputs['controlplanereplicas']
+    _cluster.ContainerDisk = inputs['containerdisk']
+    _cluster.KubeletDisk = inputs['kubeletdisk']
     match (inputs['platform']):
         case 'tkgs':
             print('tkg values processing')
@@ -812,7 +839,7 @@ def handler(context, inputs):
     print (f"Running orchestrator action: {_action}")
 
     outputs = []
-    _host = os.environ.get("host") or 'tmc.home.tanzu.rocks'
+    _host = os.environ.get("host") or 'tmc.tanzu.rocks'
     _username = os.environ.get("username") or 'david'
     _password = os.environ.get("password") or 'B3ach8um!'
 
