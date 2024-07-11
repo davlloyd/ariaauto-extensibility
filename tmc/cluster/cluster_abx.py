@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.14.0
+Version:        1.14.1
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -115,7 +115,7 @@ class TKGValues:
 
 # Main TMC REST client for cluster management
 class TMCClient:
-    __hostname = 'tmc.home.tanzu.rocks'
+    __hostname = 'tmc.tanzu.rocks'
     __username = 'david'
     __password = 'B3ach8um!'
     __clientid = 'pinniped-cli'

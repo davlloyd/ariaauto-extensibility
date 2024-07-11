@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.6.4
+Version:        1.6.7
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -115,7 +115,7 @@ class ADOClient:
             with requests.delete(url, headers=_headers, auth=('', self.__access_token)) as _response:
                 print(f"Status Code: {_response.status_code}")
                 if _response.status_code in range(200, 205):
-                    return {"status": "Deletion Completed"}
+                    return json.loads(_response.text)
                 else:
                     print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
         except HTTPError as e:
@@ -302,9 +302,9 @@ class ADOClient:
 
         _id = self.getProjectId(projectid)
         if not isinstance(environmentid, int):
-            _url = f"{self.__organisation_url}/{projectid}/_apis/pipelines/environments?name={environmentId}&expands=resourceReferences&api-version={self.__api_version}"
+            _url = f"{self.__organisation_url}/{projectid}/_apis/pipelines/environments?name={environmentid}&expands=resourceReferences&api-version={self.__api_version}"
             if (_response := self.__get(_url)) is not None:
-                environmentId = _response['value'][0]['id'] 
+                environmentid = _response['value'][0]['id'] 
             else:
                 return None
         _url = f"{self.__organisation_url}/{projectid}/_apis/pipelines/environments/{environmentid}?api-version={self.__api_version}"        
@@ -803,17 +803,17 @@ def handler(context, inputs):
             print(f"Deleting project {inputs['name']}")
             if (_response := _client.deleteProject(inputs['name'])) is not None:
                 print(f"project {inputs['name']} deleted")
-                _outputs = {'state':'deleted'}
+                _outputs = {'status':'succeeded','comment':'delete task completed successfully'}
             else:
                 print(f"project {inputs['name']} deletion failed")
-                _outputs = {'state':'deletion failed'}
+                _outputs = {'status':'failed','comment':'delete task failed'}
         case "environment-create":
             print (f"Creating an environment")
             _env = processEnvironmentInputs(inputs)
             if (_response := _client.createEnvironment(_env)) is not None:
                 _outputs = processEnvironmentResponse(_response)
             else:
-                _outputs['state'] = False
+                _outputs = {"status":"failed","comment":"Unable to create environment"}
         case "environment-get":
             _project = inputs['project']
             _env = inputs['environment']
@@ -823,7 +823,7 @@ def handler(context, inputs):
                     _response['project']['name'] = _client.getProject(_response['project']['id'])['name']
                 _outputs = processEnvironmentResponse(_response)
             else:
-                _outputs.append({"status":"Unable to rerieve environment"})
+                _outputs = {"status":"failed","comment":"Unable to rerieve environment"}
         case "environment-list":
             if 'project' in inputs.keys():
                 _project = inputs['project']
@@ -846,7 +846,7 @@ def handler(context, inputs):
                 print(f'Environment {_env} connected to project {_project} has been deleted')
             else:
                 print(f'Environment {_env} deletion failed')
-            _outputs['state'] = _response
+                _outputs = {"status":"failed","comment":f"deletion failed: {_response}"}
         case "endpoint-create":
             print(f"Creating endpoint")
             _endpoint = processEndpointInputs(inputs)
@@ -854,7 +854,7 @@ def handler(context, inputs):
                 _outputs = processEndpointResponse(_response)
             else:
                 if _outputs.count > 0:
-                    _outputs['status'] = {"status":"Inputs not well formed"}
+                    _outputs = {"status":"failed","comment":"Inputs not well formed"}
         case "endpoint-get":
             _project = inputs['project']
             _endpoint = inputs['name']

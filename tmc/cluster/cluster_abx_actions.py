@@ -157,14 +157,17 @@ class TKGSClient:
             subjects=[client.RbacV1Subject(kind='ServiceAccount', name=subject, namespace=subjectnamespace)],
             role_ref=client.V1RoleRef(api_group='rbac.authorization.k8s.io', kind='ClusterRole', name=role))
         try:
-            if _client.read_cluster_role_binding(name=_name) is None:
-                if(_response := _client.create_cluster_role_binding(body=_body)) is not None:
-                    return _response
+            if(_response := _client.create_cluster_role_binding(body=_body)) is not None:
+                return _response
             else:
-                return f"Role {_name} already exists"
+                if _client.read_cluster_role_binding(name=_name) is None:
+                    return f"Role {_name} already exists"
         except ApiException as e:
-            print("Exception when calling V1ClusterRoleBinding->create_cluster_role_binding: %s\n" % e)
-            return None
+            if _client.read_cluster_role_binding(name=_name) is not None:
+                return f"Role {_name} already exists"
+            else:
+                print("Exception when calling V1ClusterRoleBinding->create_cluster_role_binding: %s\n" % e)
+                return None
 
 
     # Get the kubconfig for the specified cluster
