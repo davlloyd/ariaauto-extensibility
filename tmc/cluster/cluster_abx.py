@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.14.1
+Version:        1.14.3
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -243,8 +243,7 @@ class TMCClient:
 
             with requests.delete(url, headers=_headers, auth=('', self.__access_token)) as _response:
                 if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
-                    _item = json.loads(_response.text)
-                    return _item
+                    return _response.text
                 else:
                     print(f"Error {_response.status_code} when running http delete: {_response.reason} - {_response.text}\n")
                     return None
@@ -853,6 +852,7 @@ def handler(context, inputs):
         case "cluster-create":
             _cluster = processInputs(inputs)
             if(_response := _client.createCluster(_cluster)) is not None:
+                print(f'Cluster creation result: {_response}')
                 outputs = processClusterResponse(_platform, _response)
         case "cluster-update":
             _cluster = processInputs(inputs)
