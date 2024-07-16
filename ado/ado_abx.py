@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.6.7
+Version:        1.7.7
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -16,11 +16,121 @@ Changelog:
         1.4.0   - Creating orchestrator actions to manage ADO state
         1.5.0   - Expanded capabitlies around ServiceEndpoint management
         1.6.0   - Environment controls for Orchestrator added
+        1.7.0   - Added Kubernetes resource support for Orchestrator
                 
 """
 
 import json, time, requests, os
 from urllib.error import URLError, HTTPError
+
+
+
+"""
+A collection of classes that represent each of the managable objects in ADO for Aria
+"""
+class Project:
+    Id = None
+    Name = None
+    Description = None
+    State = None
+    Visibility = "private"
+    ProcessTemplateId = "6b724908-ef14-45cf-84f8-768b5384da45"
+    SourceControlType = "Git"
+
+    def __init__(self, id=None, name=None, description=None, state=None, visibility=None, processTemplateId=None, sourceControlType=None):
+        self.Id = id
+        self.Name = name
+        self.Description = description
+        self.State = state
+        if visibility is not None:
+            self.Visibility = visibility
+        if processTemplateId is not None:
+            self.ProcessTemplateId = processTemplateId
+        if sourceControlType is not None:
+            self.SourceControlType = sourceControlType
+
+    def __repr__(self):
+        return json.dumps(self)
+
+    def __str__(self):
+        return f'<Project: {self.Name}>'
+
+
+class GitRepo:
+    Id = None
+    Name = None
+    Url = None
+    RemoteUrl = None
+    ProjectId = None
+    DefaultBranch = None
+    SshUrl = None
+
+    def __init__(self, name=None, projectId=None, id=None, url=None, remoteUrl=None, defaultBranch=None, sshUrl=None):
+        self.Id = id
+        self.Name = name
+        self.ProjectId = projectId
+        self.Url = url
+        self.RemoteUrl = remoteUrl
+        self.DefaultBranch = defaultBranch
+        self.SshUrl = sshUrl
+
+    def __repr__(self):
+        return json.dumps(self)
+
+    def __str__(self):
+        return f'<Project: {self.ProjectId}, GitRepo: {self.Name}>'
+
+
+class Environment:
+    Id = None
+    Name = None
+    Description = None
+    ProjectId = None
+
+    def __init__(self, name=None, projectId=None, description=None, id=None):
+        self.Id = id
+        self.Name = name
+        self.ProjectId = projectId
+        self.Description = description
+
+    def __repr__(self):
+        return json.dumps(self)
+
+    def __str__(self):
+        return f'<Project: {self.ProjectId}, Environment: {self.Name}>'
+
+
+class ServiceEndpoint:
+    Id = None
+    Name = None
+    Type = None
+    Url = None
+    ProjectId = None
+    ApiToken = None
+    Certificate = None
+    Shared = False
+
+
+class KubernetesResource:
+    Id = None
+    Name = None
+    ClusterName = None
+    Namespace = None
+    ServiceEndpointId = None
+    ProjectId = None
+    EnvironmentId = None
+
+    def __init__(self, name=None, projectId=None, environmentId=None, id=None, clustername=None, namespace=None):
+        self.Id = id
+        self.Name = name
+        self.ProjectId = projectId
+        self.EnvironmentId = environmentId
+        self.ClusterName = clustername
+        self.Namespace = namespace
+
+    def __repr__(self):
+        return json.dumps(self)
+
 
 
 """
@@ -58,7 +168,7 @@ class ADOClient:
 
     # General HTTP Get query
     def __get(self, url):
-        print(f"Executing HTTP Get")
+        print(f"Executing HTTP Get, URL: {url}")
         try:
             _headers = {
                 'Content-Type': 'application/json',
@@ -82,7 +192,7 @@ class ADOClient:
     
     # general HTTP Post. Requires data payload in JSON format
     def __post(self, url, data):
-        print(f"Executing HTTP Post")
+        print(f"Executing HTTP Post, URL: {url}")
         try:
             _body = json.dumps(data).encode('utf-8')
             _headers = {
@@ -96,6 +206,7 @@ class ADOClient:
                     return json.loads(_response.text)
                 else:
                     print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
+                    return {"status":"ERROR","reason":f"Error code: {_response.status_code}, reason: {_response.reason}"}
         except HTTPError as e:
             print(f'Error code: {e.code}, Reason: {e.reason}')
         except URLError as e:
@@ -105,7 +216,7 @@ class ADOClient:
 
     # general HTTP delete routine
     def __delete(self, url):
-        print(f"Executing HTTP Delete")
+        print(f"Executing HTTP Delete, URL: {url}")
         try:
             _headers = {
                 'Content-Type': 'application/json',
@@ -312,15 +423,6 @@ class ADOClient:
         return self.__delete(_url)
 
 
-    # Get list of an environments resources
-    def getResourceList(self, projectId, environmentId):
-        print(f"Get list of resources from project {projectId} in environment {environmentId}")
-        _environment = self.getEnvironment(projectId, environmentId)
-        _resources = _environment['resources']
-
-        return _resources
-
-
     # get a list of  a projects service endpoints
     def getServiceEndpointList(self, projectId=None):
         print(f"Get list of all service endpoints or those for a specified project")
@@ -390,6 +492,7 @@ class ADOClient:
                     },
                     "scheme": "Token"
                 },
+                "isShared": endpoint.Shared,
                 "serviceEndpointProjectReferences": [
                     {
                     "projectReference": {
@@ -402,7 +505,8 @@ class ADOClient:
             }
             return self.__post(_url, _data)
         else:
-            return None
+            return {"status":"FAILED", "message":f"Unable to find project {endpoint.ProjectId}"}
+
 
     # Delete the Service Endpoint
     def deleteServiceEndpoint(self, project, endpoint):
@@ -441,6 +545,24 @@ class ADOClient:
         return _response
 
 
+
+    # Get list of an environments resources
+    def getKubernetesResourceList(self):
+        print(f"Get list of all resources ")
+
+        _resourcelist = []
+        for _env in self.getEnvironmentList():
+            _envid = _env['id']
+            _projectid = _env['project']['id']
+            if (_project := self.getProject(_projectid)) is not None:
+                _envurl = f"{self.__organisation_url}/{_project['name']}/_apis/pipelines/environments/{_envid}/providers/kubernetes?api-version={self.__api_version}"
+                _resources =  self.__get(_envurl)
+                if _resources is not None:
+                    _resourcelist.append(_resources)
+
+        return _resourcelist
+    
+
     # Add a new Kubernetes endpoint resource
     def createKubernetesResource(self, k8sResource):
         print(f"Creating kubernetes endpoint in environment {k8sResource.EnvironmentId} in project {k8sResource.ProjectId}")
@@ -451,120 +573,24 @@ class ADOClient:
                 return None
         else:
             environmentId = k8sResource.EnvironmentId
+
+        if (_endpoint := self.getServiceEndpoint(k8sResource.ProjectId, k8sResource.ServiceEndpointId)) is not None:
+            _endpointid = _endpoint['id']
+        else:
+            _endpointid = k8sResource.ServiceEndpointId
+
         _url = f"{self.__organisation_url}/{k8sResource.ProjectId}/_apis/pipelines/environments/{environmentId}/providers/kubernetes?api-version={self.__api_version}"        
         _data = {
             "name": k8sResource.Name,
             "clusterName": k8sResource.ClusterName,
             "namespace": k8sResource.Namespace,
-            "serviceEndpointId": k8sResource.ServiceEndpointId
+            "serviceEndpointId": _endpointid
         }
         return self.__post(_url, _data)
 
     # Delete the Kubernetes resource
     def deleteKubernetesResource(self):
         return None
-
-class Project:
-    Id = None
-    Name = None
-    Description = None
-    State = None
-    Visibility = "private"
-    ProcessTemplateId = "6b724908-ef14-45cf-84f8-768b5384da45"
-    SourceControlType = "Git"
-
-    def __init__(self, id=None, name=None, description=None, state=None, visibility=None, processTemplateId=None, sourceControlType=None):
-        self.Id = id
-        self.Name = name
-        self.Description = description
-        self.State = state
-        if visibility is not None:
-            self.Visibility = visibility
-        if processTemplateId is not None:
-            self.ProcessTemplateId = processTemplateId
-        if sourceControlType is not None:
-            self.SourceControlType = sourceControlType
-
-    def __repr__(self):
-        return json.dumps(self)
-
-    def __str__(self):
-        return f'<Project: {self.Name}>'
-
-
-class GitRepo:
-    Id = None
-    Name = None
-    Url = None
-    RemoteUrl = None
-    ProjectId = None
-    DefaultBranch = None
-    SshUrl = None
-
-    def __init__(self, name=None, projectId=None, id=None, url=None, remoteUrl=None, defaultBranch=None, sshUrl=None):
-        self.Id = id
-        self.Name = name
-        self.ProjectId = projectId
-        self.Url = url
-        self.RemoteUrl = remoteUrl
-        self.DefaultBranch = defaultBranch
-        self.SshUrl = sshUrl
-
-    def __repr__(self):
-        return json.dumps(self)
-
-    def __str__(self):
-        return f'<Project: {self.ProjectId}, GitRepo: {self.Name}>'
-
-
-class Environment:
-    Id = None
-    Name = None
-    Description = None
-    ProjectId = None
-
-    def __init__(self, name=None, projectId=None, description=None, id=None):
-        self.Id = id
-        self.Name = name
-        self.ProjectId = projectId
-        self.Description = description
-
-    def __repr__(self):
-        return json.dumps(self)
-
-    def __str__(self):
-        return f'<Project: {self.ProjectId}, Environment: {self.Name}>'
-
-
-class ServiceEndpoint:
-    Id = None
-    Name = None
-    Type = None
-    Url = None
-    ProjectId = None
-    ApiToken = None
-    Certificate = None
-
-
-class KubernetesResource:
-    Id = None
-    Name = None
-    ClusterName = None
-    Namespace = None
-    ServiceEndpointId = None
-    ProjectId = None
-    EnvironmentId = None
-
-    def __init__(self, name=None, projectId=None, environmentId=None, id=None, clustername=None, namespace=None):
-        self.Id = id
-        self.Name = name
-        self.ProjectId = projectId
-        self.EnvironmentId = environmentId
-        self.ClusterName = clustername
-        self.Namespace = namespace
-
-    def __repr__(self):
-        return json.dumps(self)
 
 
 # Main handler for ABX actions
@@ -751,6 +777,33 @@ def processEndpointResponse(response):
     _status = json.dumps(_status)
     return _status
 
+
+# Process the inputs for the endpoints
+def processResourceInputs(inputs):
+    _resource = KubernetesResource()
+    _resource.Name = inputs['name']
+    _resource.ProjectId = inputs['project']
+    _resource.EnvironmentId = inputs['environment']
+    _resource.ServiceEndpointId = inputs['endpoint']
+    _resource.ClusterName = inputs['cluster']
+    _resource.Namespace = inputs['namespace']
+    return _resource
+
+
+# Extracts the resource details froo the response)
+def processResourceResponse(response, project):
+    _status = {}
+    _status['name'] = response['name']
+    _status['id'] = response['id']
+    _status['environment'] = response['environmentReference']['name']
+    _status['cluster'] = response['clusterName']
+    _status['namespace'] = response['namespace']
+    _status['endpoint'] = response['serviceEndpointId']
+    _status['project'] = project
+    _status = json.dumps(_status)
+    return _status
+
+
 # Endpoint CRUD handler
 def abxHandler_Endpoint(content, inputs):
     action = inputs.get("action")
@@ -853,8 +906,7 @@ def handler(context, inputs):
             if (_response := _client.createServiceEndpoint(_endpoint)) is not None:
                 _outputs = processEndpointResponse(_response)
             else:
-                if _outputs.count > 0:
-                    _outputs = {"status":"failed","comment":"Inputs not well formed"}
+                _outputs = {"status":"failed","comment":"Inputs not well formed"}
         case "endpoint-get":
             _project = inputs['project']
             _endpoint = inputs['name']
@@ -876,4 +928,27 @@ def handler(context, inputs):
             _endpoint = inputs['name']
             print(f"Deleting endpoint {_endpoint} from Project {_project}")
             _outputs = _client.deleteServiceEndpoint(_project, _endpoint)
+        case "resource-list":
+            print(f"Retrieving environment resource list")
+            if (_response := _client.getKubernetesResourceList()) is not None:
+                for _resource in _response:
+                    _outputs.append(processResourceResponse(_resource))
+        case "resource-get":
+            _project = inputs['project']
+            _env = inputs['environment']
+            _resource = inputs['name']
+            print(f"Retrieving resource {_resource} details for proejct {_project} in environment {_env}")
+            if (_response := _client.getKubernetesResource(_project, _env, _resource)) is not None:
+                print(f"Resource created successfully")
+                _outputs.append(processResourceResponse(_response))
+        case "resource-create":
+            print(f"Creating environment resource")
+            _resource = processResourceInputs(inputs)
+            if (_response := _client.createKubernetesResource(_resource)) is not None:
+                _outputs = processResourceResponse(_response, inputs['project'])
+            else:
+                _outputs = {"status":"failed","comment":"Inputs not well formed"}
+        case "resource-delete":
+            print(f"Deletoing environment resource")
+
     return _outputs

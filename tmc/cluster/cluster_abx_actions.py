@@ -1,11 +1,12 @@
 """
 Service:        Tanzu Mission Controller cluster actions controller
-Version:        1.3.12
+Version:        1.4.1
 Description:    Controller for the day 2 actions for the cluster 
 Changelog:      
         1.1.0   - Updated to use kubenernetes module
         1.2.0   - added ability to create serviceaccounts and clusterrolebindings
         1.3.0   - Extended to support Orchestrator actions
+        1.4.0   - Restructured service account and secret control
                 
 """
 
@@ -77,6 +78,21 @@ class TKGSClient:
         return None
 
 
+    # Create coreV1 client
+    def __get_kubernetes_corev1client(bearer_token, api_server_endpoint):
+        try:
+            configuration = client.Configuration()
+            configuration.host = api_server_endpoint
+            configuration.verify_ssl = False
+            configuration.api_key = {"authorization": "Bearer " + bearer_token}
+            client.Configuration.set_default(configuration)
+            client_api = client.CoreV1Api()
+            return client_api
+        except Exception as e:
+            print("Error getting kubernetes client \n{}".format(e))
+            return None
+
+
     # Check if the API is accessible
     def accessCheck(self):
         print(f'Access check')
@@ -103,62 +119,79 @@ class TKGSClient:
         except:
             return False
 
-
     # create service account and return associated secret
     def createServiceAccount(self, kubeconfig, namespace='kube-system', accountname='ado-admin'):
         print(f'Create service account and associated secret')
 
-        print(f'Load Kubeconfig')
         config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
         _client = client.CoreV1Api()
         _body = {'metadata': {'name': accountname} }
         _pretty = 'true'
-        _token = None
 
         try:
             print(f'Create ServiceAccount')
             if(_response := _client.create_namespaced_service_account(namespace, _body, pretty=_pretty)) is not None:
-                _secret = client.V1Secret(
-                    api_version="v1",
-                    kind="Secret",
-                    metadata=client.V1ObjectMeta(name=accountname, annotations={'kubernetes.io/service-account.name': accountname}),
-                    type="kubernetes.io/service-account-token"
-                )                
-                print(f'Create ServiceAccount Token Secret')
-                _secret = _client.create_namespaced_secret(namespace=namespace, body=_secret)
-                i=0
-                while _secret.data is None:
-                    # this has been added as the response tends to return before data completed processing
-                    time.sleep(10)
-                    _secret = _client.read_namespaced_secret(name=accountname, namespace=namespace)
-                    i=i+1
-                    if i==10:
-                        print(f'Secret is not returning data')
-                        return None
-                return _secret.data['token'], _secret.data['ca.crt']
+                print(f"ServiceAccount {accountname} created with response: {_response}")
+                return _response
         except ApiException as e:
-            print(f'Create ServiceAccount API Exception')
-            if e.reason == "Conflict":
-                print("Service already account exists, retrieving secret")
-                if (_secret := _client.read_namespaced_secret(name=accountname, namespace=namespace)) is not None:
-                    return _secret.data['token'], _secret.data['ca.crt']
-                else:
-                    print("Failed to retrieve secret")
-            print("Exception when calling CoreV1Api->create_namespaced_service_account: %s\n" % e)
+            print(f"API Exception when creatung service account: {e}\n")
+            if e.reason == "Conflict" or e.reason == "AlreadyExists":
+                print("Service already account already exists")
+                return {"status": "AlreadyPresent"}
         except Exception as e:
-            print("Exception when calling CoreV1Api->create_namespaced_service_account: %s\n" % e)
+            print(f"Exception when creating service account: {e}\n")
+
+        _client.api_client.close()
+        return None
+
+
+    # Create a secret
+    def createServiceAccountTokenSecret(self, kubeconfig, namespace='kube-system', accountname='ado-admin'):
+        print(f'Create ServiceAccount Token Secret')
+
+        config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
+        _client = client.CoreV1Api()
+
+        _body = client.V1Secret(
+            api_version="v1",
+            kind="Secret",
+            metadata=client.V1ObjectMeta(name=accountname, annotations={'kubernetes.io/service-account.name': accountname}),
+            type="kubernetes.io/service-account-token"
+        )                
+
+        try:
+            print(f'Create ServiceAccount Token Secret')
+            _response = _client.create_namespaced_secret(namespace=namespace, body=_body)
+            print(f'Secret data returned: {_response}')
+            return _response
+        except ApiException as e:
+            print(f"API Exception when creating service account token: {e}\n")
+            if e.reason == "Conflict" or e.reason == "AlreadyExists":
+                print(f"AService account token already exists")
+                return {"status": "AlreadyPresent"}
+        except Exception as e:
+            print(f"Exception when creating service account: {e}\n")
+
+        _client.api_client.close()
         return None
 
 
     # Read the data from the listed secret
-    def readSecretData(self, client, namespace, secretname):
+    def readSecretData(self, kubeconfig, namespace, secretname):
         print("Retrieving secret data")
 
-        if (_secret := client.read_namespaced_secret(name=secretname, namespace=namespace)) is not None:
-            print("Secret retrieved")
-            return _secret.data
-        else:
-            return None
+        config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
+        _client = client.CoreV1Api()
+
+        try:
+            if (_secret := _client.read_namespaced_secret(name=secretname, namespace=namespace)) is not None:
+                print("Secret retrieved")
+                return _secret.data
+        except ApiException as e:
+            print(f"API Exception when reading xecret data: {e}\n")
+
+        _client.api_client.close()
+        return None
 
 
     # Create clusterrolebinding
@@ -166,7 +199,6 @@ class TKGSClient:
         print(f'Create clusterrolebinding for subject {subject} for role {role}')
 
         _name = f'{subject}:{role}'
-        print(f'Load kubeconfig')
         config.load_kube_config_from_dict(kubeconfig.kubeconfig_dict)
         _client = client.RbacAuthorizationV1Api()
         _body = client.V1ClusterRoleBinding(
@@ -179,14 +211,17 @@ class TKGSClient:
                 return _response
             else:
                 if _client.read_cluster_role_binding(name=_name) is None:
-                    return f"Role {_name} already exists"
+                    return {"status":"AlreadyPresent", "comment":"Binding already exists"}
         except ApiException as e:
             print(f'Clusteradmin role binding creation exception caught {e}')
-            if _client.read_cluster_role_binding(name=_name) is not None:
-                return f"Role {_name} already exists"
-            else:
-                print("Exception when calling V1ClusterRoleBinding->create_cluster_role_binding: %s\n" % e)
-                return None
+            if e.reason == "Conflict" or e.reason == "AlreadyExists":
+                print(f"Cluster role already exists")
+                return {"status": "AlreadyPresent"}
+        except Exception as e:
+            print("Exception when calling create_cluster_role_binding: %s\n" % e)
+
+        _client.api_client.close()
+        return None
 
 
     # Get the kubconfig for the specified cluster
@@ -206,7 +241,7 @@ class TKGSClient:
             return None
 
 
-
+# Get cluster access details
 def getSecurityContexts(client, inputs):
     _creds = {}
     _clustername = inputs['name']
@@ -216,23 +251,46 @@ def getSecurityContexts(client, inputs):
     _namespace = 'kube-system'
     _creds['cluster'] = _clustername
     _creds["provisioner"] = _provisioner
+    _creds['serviceaccountnamespace'] = _namespace
+    _creds['serviceaccountname'] = _accountname
+
     print(f'Calling Kubeconfig retriever function')
     if(_kubeconfig := client.getClusterKubeconfig(clustername=_clustername, provisioner=_provisioner)) is not None:
         _creds['kubeconfig'] = _kubeconfig.kubeconfig_b64
         _creds['apiurl'] = _kubeconfig.api_url
-    print(f'Calling service account creation function')
-    if(_token := client.createServiceAccount(_kubeconfig, _namespace, _accountname)) is not None:
-        print(f'Calling service account clusterrole binding creation')
-        _response = client.createClusterRoleBinding(_kubeconfig, _accountname, _namespace, 'cluster-admin')
-        _creds['serviceaccountnamespace'] = _namespace
-        _creds['serviceaccountname'] = _accountname
-        _creds['serviceaccounttoken'] = _token[0]
-        _creds['serviceaccountcertificate'] = _token[1]
 
-    if len(_creds) > 0: 
+        print(f'Calling service account creation function')
+        if (_response := client.createServiceAccount(_kubeconfig, _namespace, _accountname)) is  None:
+            print(f'Service account creation returned nothing')
+        else:
+            print(f"Service account {_accountname} created")
+
+        print(f'Calling service account token secret creation')
+        if (_response := client.createServiceAccountTokenSecret(_kubeconfig, _namespace, _accountname)) is  None:
+            print(f'Service account token creation returned nothing')
+        else:
+            print(f"Service account token {_accountname} created with the data {_response}")
+
+
+        print(f'Reading service account token secret')
+        if (_response := client.readSecretData(_kubeconfig, _namespace, _accountname)) is  None:
+            print(f'Could not read service account token details')
+        else:
+            print(f"Service account token {_accountname} read with the data {_response}")
+            _creds['serviceaccounttoken'] = _response['token']
+            _creds['serviceaccountcertificate'] = _response['ca.crt']
+
+        print(f'Creating service account Cluster rolebindung for clusteradmin')
+        if (_response := client.createClusterRoleBinding(_kubeconfig, _accountname, _namespace, 'cluster-admin')) is  None:
+            print(f'Could not create the cluster role')
+        else:
+            print(f"Cluster role created created with the response: {_response}")
+
         return _creds
     else:
+        print(f"Unable to retrieve cluster credentials")
         return None
+
 
 
 # Main handler for ABX actions
@@ -259,18 +317,7 @@ def abxHandler(context, inputs):
 
     match op:
         case "kubeconfig-admin":
-            outputs['kubeconfig-admin'] = True
-            _clustername = inputs['name']
-            _provisioner = inputs['provisioner']
-            _accountname = 'token-admin'
-            _namespace = 'kube-system'
-
-            if(_kubeconfig := _client.getClusterKubeconfig(clustername=_clustername, provisioner=_provisioner)) is not None:
-                outputs['kubeconfig'] = _kubeconfig.kubeconfig
-                if(_token := _client.createServiceAccount(_kubeconfig, _namespace, _accountname)) is not None:
-                    _response = _client.createClusterRoleBinding(_kubeconfig, _accountname, _namespace, 'cluster-admin')
-                    outputs['token'] = _token
-            
+            outputs = getSecurityContexts(_client, inputs)            
 
     return outputs
 
