@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.7.7
+Version:        1.8.1
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -168,7 +168,7 @@ class ADOClient:
 
     # General HTTP Get query
     def __get(self, url):
-        print(f"Executing HTTP Get, URL: {url}")
+        print(f"Executing HTTP Get")
         try:
             _headers = {
                 'Content-Type': 'application/json',
@@ -192,7 +192,7 @@ class ADOClient:
     
     # general HTTP Post. Requires data payload in JSON format
     def __post(self, url, data):
-        print(f"Executing HTTP Post, URL: {url}")
+        print(f"Executing HTTP Post")
         try:
             _body = json.dumps(data).encode('utf-8')
             _headers = {
@@ -216,7 +216,7 @@ class ADOClient:
 
     # general HTTP delete routine
     def __delete(self, url):
-        print(f"Executing HTTP Delete, URL: {url}")
+        print(f"Executing HTTP Delete")
         try:
             _headers = {
                 'Content-Type': 'application/json',
@@ -359,19 +359,22 @@ class ADOClient:
     def getEnvironmentList(self, projectId=None) -> json:
         print(f"Get list of environments from project {projectId} details")
 
-        _envs = None
+        _envs = []
         if projectId is None:
             for _project in self.getProjectList_dict():
                 _url = f"{self.__organisation_url}/{_project}/_apis/pipelines/environments?api-version={self.__api_version}"
                 if (_response := self.__get(_url)) is not None:
-                    _envs = []
                     for _env in _response['value']:
                         _envs.append(_env)
         else:        
             _url = f"{self.__organisation_url}/{projectId}/_apis/pipelines/environments?api-version={self.__api_version}"
             if (_response := self.__get(_url)) is not None:
                 _envs = _response['value']
-        return _envs
+
+        if len(_envs) == 0:
+            return None
+        else:
+            return _envs
  
 
     # Get the environment id from an environment name
@@ -388,6 +391,7 @@ class ADOClient:
     # requires project name or id and envirnment id
     def getEnvironment(self, project, environment) -> json:
         print(f"Get environment {environment} from project {project} details")
+
 
         if (_id := self.getEnvironmentId(project, environment)) is not None:
             _url = f"{self.__organisation_url}/{project}/_apis/pipelines/environments/{_id}?expands=resourceReferences&api-version={self.__api_version}"
@@ -547,18 +551,23 @@ class ADOClient:
 
 
     # Get list of an environments resources
-    def getKubernetesResourceList(self):
+    def getKubernetesResourceList(self, project=None):
         print(f"Get list of all resources ")
 
         _resourcelist = []
-        for _env in self.getEnvironmentList():
-            _envid = _env['id']
-            _projectid = _env['project']['id']
-            if (_project := self.getProject(_projectid)) is not None:
-                _envurl = f"{self.__organisation_url}/{_project['name']}/_apis/pipelines/environments/{_envid}/providers/kubernetes?api-version={self.__api_version}"
-                _resources =  self.__get(_envurl)
-                if _resources is not None:
-                    _resourcelist.append(_resources)
+        _envlist = self.getEnvironmentList()
+        for _item in _envlist:
+            _projectid = _item['project']['id']
+            _projectname = self.getProject(_projectid)['name']
+            _envname = _item['name']
+            print(f"Checking project {_projectname} environment {_envname} for resources")
+            if _projectname == project or project is None:
+                _envid = _item['id']
+                _env = self.getEnvironment(_projectname, _envname)
+                for _resource in _env['resources']:
+                    _resourceid = _resource['id']
+                    if (_resource := self.getKubernetesResource(_projectid, _envid, _resourceid)) is not None:
+                        _resourcelist.append(processResourceResponse(_resource, _projectname))
 
         return _resourcelist
     
@@ -589,8 +598,28 @@ class ADOClient:
         return self.__post(_url, _data)
 
     # Delete the Kubernetes resource
-    def deleteKubernetesResource(self):
-        return None
+    def deleteKubernetesResource(self, project, environment, resource):
+        print(f"Delete a kubernetes resource")
+
+        if not isinstance(environment, int):
+            if(_environment := self.getEnvironment(project, environment)) is not None:
+                _envid = _environment['id']
+                for _resource in _environment['resources']:
+                    if _resource['name'].upper() == resource.upper():
+                        _resourceid = _resource['id']
+                        break
+
+            else:
+                return None
+        else:
+            _envid = environment
+        _url = f"{self.__organisation_url}/{project}/_apis/pipelines/environments/{_envid}/providers/kubernetes/{_resourceid}?api-version={self.__api_version}"
+        if (_response := self.__delete(_url)) is not None:
+            print("Resource deleted successfully")
+            return _response
+        else:
+            print("Resource deletion failed")
+            return None
 
 
 # Main handler for ABX actions
@@ -791,15 +820,17 @@ def processResourceInputs(inputs):
 
 
 # Extracts the resource details froo the response)
-def processResourceResponse(response, project):
+def processResourceResponse(response, project=None):
     _status = {}
     _status['name'] = response['name']
-    _status['id'] = response['id']
+    _status['resourceid'] = response['id']
     _status['environment'] = response['environmentReference']['name']
     _status['cluster'] = response['clusterName']
     _status['namespace'] = response['namespace']
-    _status['endpoint'] = response['serviceEndpointId']
-    _status['project'] = project
+    _status['serviceendpoint'] = response['serviceEndpointId']
+    _status['resourcetype'] = response['type']
+    if project is not None:
+        _status['project'] = project
     _status = json.dumps(_status)
     return _status
 
@@ -930,9 +961,14 @@ def handler(context, inputs):
             _outputs = _client.deleteServiceEndpoint(_project, _endpoint)
         case "resource-list":
             print(f"Retrieving environment resource list")
-            if (_response := _client.getKubernetesResourceList()) is not None:
-                for _resource in _response:
-                    _outputs.append(processResourceResponse(_resource))
+            if 'project' in inputs.keys():
+                _project = inputs['project']
+            else:
+                _project = None
+            if (_response := _client.getKubernetesResourceList(_project)) is not None:
+                _outputs = _response
+            else:
+                print("Resource list not returned")
         case "resource-get":
             _project = inputs['project']
             _env = inputs['environment']
@@ -940,7 +976,7 @@ def handler(context, inputs):
             print(f"Retrieving resource {_resource} details for proejct {_project} in environment {_env}")
             if (_response := _client.getKubernetesResource(_project, _env, _resource)) is not None:
                 print(f"Resource created successfully")
-                _outputs.append(processResourceResponse(_response))
+                _outputs.append(processResourceResponse(_response, _project))
         case "resource-create":
             print(f"Creating environment resource")
             _resource = processResourceInputs(inputs)
@@ -949,6 +985,6 @@ def handler(context, inputs):
             else:
                 _outputs = {"status":"failed","comment":"Inputs not well formed"}
         case "resource-delete":
-            print(f"Deletoing environment resource")
+            print(f"Deleting environment resource")
 
     return _outputs
