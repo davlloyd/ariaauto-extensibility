@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.15.2
+Version:        1.15.3
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -427,16 +427,21 @@ class TMCClient:
         _start = time.time() 
         while (time.time() - _start) < timeout:  
             if (time.time() - _start) > 180: # Giving the clusters 3 minutes before polling progress
-                _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
-                _status = _response['status']['phase']
-                if _status == "READY":
-                    print(f"Cluster is now repoerting phase READY")
-                    if 'Agent-READY' in _response['status']['conditions']:
-                        _agent = _response['status']['conditions']['Agent-READY']['status']
-                        print(f"Cluster: READY, Agent Status: {_agent}")
-                        if _agent != "FALSE": # CREATING, ATTACH_COMPLETE, AGents healthy
-                            print(f'Cluster is fully operationaly ready')
-                            return _response
+                try:
+                    _response = self.getCluster(cluster.Name, cluster.Provisioner, cluster.ManagementCluster)
+                    _status = _response['status']['phase']
+                    if _status == "READY":
+                        print(f"Cluster is now repoerting phase READY")
+                        if 'Agent-READY' in _response['status']['conditions']:
+                            _agent = _response['status']['conditions']['Agent-READY']['status']
+                            print(f"Cluster: READY, Agent Status: {_agent}")
+                            if _agent != "FALSE": # CREATING, ATTACH_COMPLETE, AGents healthy
+                                print(f'Cluster is fully operationaly ready')
+                                return _response
+                except:
+                    print(f'Cluster ready pulse check failed, will attempt again')
+
+
             time.sleep(30)  # Sleep for 30 seconds before checking again
 
         print(f'Cluster provisioning timeout exceeded')

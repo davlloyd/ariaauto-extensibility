@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.8.1
+Version:        1.8.5
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -17,6 +17,7 @@ Changelog:
         1.5.0   - Expanded capabitlies around ServiceEndpoint management
         1.6.0   - Environment controls for Orchestrator added
         1.7.0   - Added Kubernetes resource support for Orchestrator
+        1.8.0   - Changed delete functions to support both json and boolean responses. Project is the only json dependent service curre
                 
 """
 
@@ -215,8 +216,9 @@ class ADOClient:
 
 
     # general HTTP delete routine
-    def __delete(self, url):
+    def __delete(self, url, jsonResponse=False):
         print(f"Executing HTTP Delete")
+
         try:
             _headers = {
                 'Content-Type': 'application/json',
@@ -226,14 +228,22 @@ class ADOClient:
             with requests.delete(url, headers=_headers, auth=('', self.__access_token)) as _response:
                 print(f"Status Code: {_response.status_code}")
                 if _response.status_code in range(200, 205):
-                    return json.loads(_response.text)
+                    if jsonResponse:
+                        return json.dump(_response.text)
+                    else:
+                        return True
                 else:
                     print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
         except HTTPError as e:
             print(f'Error code: {e.code}, Reason: {e.reason}')
         except URLError as e:
             print(f'Url code: {e.code}, Reason: {e.reason}')
-        return None
+
+        if jsonResponse:
+            return False
+        else:
+            return None
+
 
 
     # get a list of projects
@@ -308,7 +318,7 @@ class ADOClient:
         _url = f"{self.__organisation_url}/_apis/projects/{_id}?api-version={self.__api_version}"
 
         _start = time.time()
-        if (_response := self.__delete(_url)) is not None:
+        if (_response := self.__delete(_url, True)) is not None:
             print(f"Track task request {_response['id']}")
             while (time.time() - _start) < self.__timeout:  
                 if _response['status'] == "succeeded":
@@ -521,13 +531,10 @@ class ADOClient:
 
         if _projid is not None and _envid is not None:
             _url = f"{self.__organisation_url}/_apis/serviceendpoint/endpoints/{_envid}?projectIds={_projid}&api-version={self.__api_version}"
-            if (_response := self.__delete(_url)) is not None:
-                print(f"Endpoint deleted")
-                return {"status":"DELETED"}
-            else:
-                return {"status":"FAILED"}
+            return self.__delete(_url)
         else:
-                return {"status":"Environment unknown"}
+            print("Error: Environment unknown")
+            return False
 
 
     # Get the kubernetes resource details
@@ -614,12 +621,12 @@ class ADOClient:
         else:
             _envid = environment
         _url = f"{self.__organisation_url}/{project}/_apis/pipelines/environments/{_envid}/providers/kubernetes/{_resourceid}?api-version={self.__api_version}"
-        if (_response := self.__delete(_url)) is not None:
+        if (_response := self.__delete(_url)):
             print("Resource deleted successfully")
             return _response
         else:
             print("Resource deletion failed")
-            return None
+            return _response
 
 
 # Main handler for ABX actions
@@ -813,7 +820,7 @@ def processResourceInputs(inputs):
     _resource.Name = inputs['name']
     _resource.ProjectId = inputs['project']
     _resource.EnvironmentId = inputs['environment']
-    _resource.ServiceEndpointId = inputs['endpoint']
+    _resource.ServiceEndpointId = inputs['serviceendpoint']
     _resource.ClusterName = inputs['cluster']
     _resource.Namespace = inputs['namespace']
     return _resource
@@ -885,12 +892,12 @@ def handler(context, inputs):
             _outputs = _client.getProjectList_dict()
         case "project-delete":
             print(f"Deleting project {inputs['name']}")
-            if (_response := _client.deleteProject(inputs['name'])) is not None:
+            if (_response := _client.deleteProject(inputs['name'])):
                 print(f"project {inputs['name']} deleted")
                 _outputs = {'status':'succeeded','comment':'delete task completed successfully'}
             else:
                 print(f"project {inputs['name']} deletion failed")
-                _outputs = {'status':'failed','comment':'delete task failed'}
+                _outputs = None
         case "environment-create":
             print (f"Creating an environment")
             _env = processEnvironmentInputs(inputs)
@@ -926,8 +933,9 @@ def handler(context, inputs):
             _project = inputs['project']
             _env = inputs['environment']
             print(f"Deleting environment {_env} for project {_project}")
-            if (_response := _client.deleteEnvironment(_project, _env)) is not None:
+            if (_response := _client.deleteEnvironment(_project, _env)):
                 print(f'Environment {_env} connected to project {_project} has been deleted')
+                _outputs = {'status':'succeeded','comment':'delete task completed successfully'}
             else:
                 print(f'Environment {_env} deletion failed')
                 _outputs = {"status":"failed","comment":f"deletion failed: {_response}"}
@@ -958,7 +966,12 @@ def handler(context, inputs):
             _project = inputs['project']
             _endpoint = inputs['name']
             print(f"Deleting endpoint {_endpoint} from Project {_project}")
-            _outputs = _client.deleteServiceEndpoint(_project, _endpoint)
+            if(_response := _client.deleteServiceEndpoint(_project, _endpoint)):
+                print(f"project {inputs['name']} deleted")
+                _outputs = {'status':'succeeded','comment':'delete task completed successfully'}
+            else:
+                print(f"project {inputs['name']} deletion failed")
+                _outputs = None
         case "resource-list":
             print(f"Retrieving environment resource list")
             if 'project' in inputs.keys():
@@ -986,5 +999,15 @@ def handler(context, inputs):
                 _outputs = {"status":"failed","comment":"Inputs not well formed"}
         case "resource-delete":
             print(f"Deleting environment resource")
+            _project = inputs['project']
+            _environment = inputs['environment']
+            _resource = inputs['name']
+            print(f"Deleting resource {_resource} in environment {_environment} from Project {_project}")
+            if(_response := _client.deleteKubernetesResource(_project, _environment, _resource)):
+                print(f"resource {_resource} deleted")
+                _outputs = {'status':'succeeded','comment':'delete task completed successfully'}
+            else:
+                print(f"resource {_resource} deletion failed")
+                _outputs = None
 
     return _outputs
