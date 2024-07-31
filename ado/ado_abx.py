@@ -1,6 +1,6 @@
 """
 Service:        Azure DevOps Aria ABX Extension Script
-Version:        1.8.5
+Version:        1.8.8
 Description:    Through ABX custom objects this script allows for the operational control
                 of Azure DevOps objects including
                 - projects
@@ -183,7 +183,6 @@ class ADOClient:
                     return _item
                 else:
                     print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
-                    return None
         except HTTPError as e:
             print(f'Error code: {e.code}, Reason: {e.reason}')
         except URLError as e:
@@ -206,12 +205,11 @@ class ADOClient:
                 if _response.status_code in range(200,205):
                     return json.loads(_response.text)
                 else:
-                    print(f'Error response code: {_response.status_code}, reason: {_response.reason}')
-                    return {"status":"ERROR","reason":f"Error code: {_response.status_code}, reason: {_response.reason}"}
+                    print(f'POST- Error response code: {_response.status_code}, reason: {_response.reason}')
         except HTTPError as e:
-            print(f'Error code: {e.code}, Reason: {e.reason}')
+            print(f'POST- Error code: {e.code}, Reason: {e.reason}')
         except URLError as e:
-            print(f'Url code: {e.code}, Reason: {e.reason}')
+            print(f'POST- Url code: {e.code}, Reason: {e.reason}')
         return None
 
 
@@ -229,7 +227,7 @@ class ADOClient:
                 print(f"Status Code: {_response.status_code}")
                 if _response.status_code in range(200, 205):
                     if jsonResponse:
-                        return json.dump(_response.text)
+                        return json.loads(_response.text)
                     else:
                         return True
                 else:
@@ -602,7 +600,9 @@ class ADOClient:
             "namespace": k8sResource.Namespace,
             "serviceEndpointId": _endpointid
         }
+        print(f"Executing resource create function with data {_data}")
         return self.__post(_url, _data)
+
 
     # Delete the Kubernetes resource
     def deleteKubernetesResource(self, project, environment, resource):
@@ -883,6 +883,8 @@ def handler(context, inputs):
             _project = processProjectInputs(inputs)
             if(_response := _client.createProject(_project)) is not None:
                 _outputs = processProjectResponse(_response)
+            else:
+                _outputs = None
         case "project-get":
             print(f"retrieving project {inputs['name']}")
             if(_response := _client.getProject(inputs['name'])) is not None:
@@ -904,7 +906,7 @@ def handler(context, inputs):
             if (_response := _client.createEnvironment(_env)) is not None:
                 _outputs = processEnvironmentResponse(_response)
             else:
-                _outputs = {"status":"failed","comment":"Unable to create environment"}
+                _outputs = None
         case "environment-get":
             _project = inputs['project']
             _env = inputs['environment']
@@ -938,14 +940,14 @@ def handler(context, inputs):
                 _outputs = {'status':'succeeded','comment':'delete task completed successfully'}
             else:
                 print(f'Environment {_env} deletion failed')
-                _outputs = {"status":"failed","comment":f"deletion failed: {_response}"}
+                _outputs = None
         case "endpoint-create":
             print(f"Creating endpoint")
             _endpoint = processEndpointInputs(inputs)
             if (_response := _client.createServiceEndpoint(_endpoint)) is not None:
                 _outputs = processEndpointResponse(_response)
             else:
-                _outputs = {"status":"failed","comment":"Inputs not well formed"}
+                _outputs = None
         case "endpoint-get":
             _project = inputs['project']
             _endpoint = inputs['name']
@@ -996,7 +998,7 @@ def handler(context, inputs):
             if (_response := _client.createKubernetesResource(_resource)) is not None:
                 _outputs = processResourceResponse(_response, inputs['project'])
             else:
-                _outputs = {"status":"failed","comment":"Inputs not well formed"}
+                _outputs = None
         case "resource-delete":
             print(f"Deleting environment resource")
             _project = inputs['project']

@@ -4,7 +4,7 @@ import tmc.cluster.cluster_abx
 import tmc.cluster.cluster_abx_actions
 from ado.ado_abx import ADOClient, Project, GitRepo, Environment, KubernetesResource, ServiceEndpoint
 
-_client = TMCClient()
+#_client = TMCClient()
 
 _cluster = Cluster()
 _cluster.Name = 'home-test-1'
@@ -55,8 +55,8 @@ inputs = {'action':'cluster-create',
 
 #inputs = {'action':'form-getmanagementclusterlist'}
 #inputs = {'action':'form-getclustergrouplist'}
-#inputs = {'action':'form-clusterlist'}
-inputs = {'action':'kubeconfig-admin',"name":"lab-test-3","provisioner":"testing"}
+inputs = {'action':'form-clusterlist'}
+#inputs = {'action':'kubeconfig-admin',"name":"lab-test-3","provisioner":"testing"}
 #inputs = {'action':'form-getprovisionerlist'}
 #inputs = {'action':'form-getnodesizelist','provisioner':'test','managementcluster':'supervisor1'}
 #inputs = {'action':'form-storageclasslist','provisioner':'test','managementcluster':'supervisor1'}
@@ -65,9 +65,9 @@ inputs = {'action':'kubeconfig-admin',"name":"lab-test-3","provisioner":"testing
 #inputs = {'action':'cluster-find',"name":"home-test-1"}
 #inputs = {'action':'clustergroup-cluster-list',"name":"home-test"}
 
-#_response = tmc.cluster.cluster_abx.handler('', inputs)
+_response = tmc.cluster.cluster_abx.handler('', inputs)
 
-_response = tmc.cluster.cluster_abx_actions.handler('', inputs)
+#_response = tmc.cluster.cluster_abx_actions.handler('', inputs)
 #_ado = ADOClient(organisation_url='http://azuredevops.ad.home.local/DefaultCollection', access_token='e4t7gerblbfziblu4y7lzdjccvsmkdnzehymnczbz4odctb6rzuq')
 
 # _sep = ServiceEndpoint()

@@ -1,6 +1,6 @@
 """
 Service:        Tanzu Mission Controller cluster controller
-Version:        1.15.3
+Version:        2.0.2
 Description:    Through ABX custom objects this script allows for the operational control
                 of TMC clusters. This is structured to be a universal controller for all support platforms
                 in TMC. This includes
@@ -26,6 +26,8 @@ Changelog:
         1.13.0  - Extending clustergroup support to enable control in Orchestrator
         1.14.0  - Added custom disk sizing
         1.15.0  - Extened logging and extended cluster ready determination to include agent health
+        2.0.0   - Added support for TMC SaaS
+
 """
 
 
@@ -124,136 +126,62 @@ class TMCClient:
     __code_challenge = 'vTu6b5Jm2hpi1vjRJw7HB820EYNq7AFT1IHDLBQMc3Q'
     __code_verifier = 'UDABWPiROQh0nfhGzd_7OetrEJZZ7S-Z_H8_ZLB2i8Yc2wix'
     __scope = 'openid+offline_access+username+groups'
+    __vmcs_auth_url = "https://console.cloud.vmware.com/csp/gateway/am/api/auth/api-tokens/authorize" 
     __auth_code = None
     __access_token = None
     __refresh_token = None
     __id_token = None
+    __selfmanaged = True
+    __api_key = None
+    __token_expiry = None
 
 
-    def __init__(self, hostname=None, username=None, password=None):
+    def __init__(self, selfmanaged=True, hostname=None, apikey=None, username=None, password=None):
+        self.__selfmanaged = selfmanaged
+
         if hostname != None:
             self.__hostname = hostname
+        if apikey != None:
+            self.__api_key = apikey
         if username != None:
             self.__username = username
         if password != None:
             self.__password = password
 
-        self.authorizeUser()
-        self.obtainToken()
+        if self.__selfmanaged:
+            self.authorizeUser()
+            self.obtainToken()
+        else:
+            self.vmcsRefreshToken()
 
-    # General HTTP Get query
-    def __get(self, url):
-        print(f"Executing HTTP Get with url: {url}")
-        self.refreshToken()
+
+    def vmcsRefreshToken(self):
+        print("Get VMCS Refresh Token")
+
+        _headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
+        }
+
+        _data = {"api_token": f"{self.__api_key}"}
         try:
-            _headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': f'Bearer {self.__access_token}',
-                'grpc-metadata-x-user-id': self.__id_token,
-                'grpc-metadata-x-refresh-token': self.__refresh_token
-            }   
-            
-            with requests.get(url, headers=_headers) as _response:
+            with requests.post(self.__vmcs_auth_url, headers=_headers, data=_data) as _response:
                 if _response.status_code == 200:
-                    _item = json.loads(_response.content)
-                    return _item
-                else:
-                    print(f"Error {_response.status_code} when running http get: {_response.reason} - {_response.text}\n")
-                    return None
-        except HTTPError as e:
-            print(f'HTTP Error code: {e.code} descripton {e.reason}')
-        except URLError as e:
-            print(f'URL Error code: {e.code} descripton {e.reason}')
-
-        return None
-    
-
-    # general HTTP Post. Requires data payload in JSON format
-    def __post(self, url, data):
-        print(f"Executing HTTP Post with url: {url}")
-        self.refreshToken()
-        try:
-            _body = json.dumps(data).encode('utf-8')
-            _headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': f'Bearer {self.__access_token}',
-                'grpc-metadata-x-user-id': self.__id_token,
-                'grpc-metadata-x-refresh-token': self.__refresh_token
-            }
-
-            with requests.post(url, headers=_headers, data=_body) as _response:
-                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
                     _item = json.loads(_response.text)
-                    return _item
+                    self.__refresh_token = _item['refresh_token']
+                    self.__access_token = _item['access_token']
+                    self.__token_expiry = _item['expires_in']
+                    return True
                 else:
-                    print(f"Error {_response.status_code} when running http post: {_response.reason} - {_response.text}\n")
-                    return None
-        except HTTPError as e:
-            print(f'HTTP Error code: {e.code} descripton {e.reason}')
-            if e.close == 409:
-                raise HTTPError("Can not post request as it wold create a conflict", 409)
-        except URLError as e:
-            print(f'URL Error code: {e.code} descripton {e.reason}')
+                    print(f"Error when running delete: {_response}\n")
+                    return False
 
-        return None
-
-    # general HTTP Put. Requires data payload in JSON format
-    def __put(self, url, data):
-        print(f"Executing HTTP Post with url {url}")
-        self.refreshToken()
-        try:
-            _body = json.dumps(data).encode('utf-8')
-            _headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': f'Bearer {self.__access_token}',
-                'grpc-metadata-x-user-id': self.__id_token,
-                'grpc-metadata-x-refresh-token': self.__refresh_token
-            }
-
-            with requests.put(url, headers=_headers, data=_body) as _response:
-                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
-                    _item = json.loads(_response.text)
-                    return _item
-                else:
-                    print(f"Error {_response.status_code} when running http put: {_response.reason} - {_response.text}\n")
-                    return None
-        except HTTPError as e:
-            print(f'HTTP Error code: {e.code} descripton {e.reason}')
-            if e.close == 409:
-                raise HTTPError("Can not post request as it wold create a conflict", 409)
-        except URLError as e:
-            print(f'URL Error code: {e.code} descripton {e.reason}')
-
-        return None
-
-    # general HTTP delete routine
-    def __delete(self, url):
-        print(f"Executing HTTP Delete with url {url}")
-        self.refreshToken()
-        try:
-            _headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Authorization': f'Bearer {self.__access_token}',
-                'grpc-metadata-x-user-id': self.__id_token,
-                'grpc-metadata-x-refresh-token': self.__refresh_token
-            }
-
-            with requests.delete(url, headers=_headers, auth=('', self.__access_token)) as _response:
-                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
-                    return _response.text
-                else:
-                    print(f"Error {_response.status_code} when running http delete: {_response.reason} - {_response.text}\n")
-                    return None
         except HTTPError as e:
             print(f'HTTP Error code: {e.code} descripton {e.reason}')
         except URLError as e:
             print(f'URL Error code: {e.code} descripton {e.reason}')
 
-        return None
+        return False
 
 
     # Initial access authorization for user/password account
@@ -349,6 +277,124 @@ class TMCClient:
 
         return False
 
+
+    # General HTTP Get query
+    def __get(self, url):
+        print(f"Executing HTTP Get with url: {url}")
+        if self.__selfmanaged:
+            self.refreshToken()
+        try:
+            _headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {self.__access_token}',
+                'grpc-metadata-x-user-id': self.__id_token,
+                'grpc-metadata-x-refresh-token': self.__refresh_token
+            }   
+            
+            with requests.get(url, headers=_headers) as _response:
+                if _response.status_code == 200:
+                    _item = json.loads(_response.content)
+                    return _item
+                else:
+                    print(f"Error {_response.status_code} when running http get: {_response.reason} - {_response.text}\n")
+                    return None
+        except HTTPError as e:
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
+        except URLError as e:
+            print(f'URL Error code: {e.code} descripton {e.reason}')
+
+        return None
+    
+
+    # general HTTP Post. Requires data payload in JSON format
+    def __post(self, url, data):
+        print(f"Executing HTTP Post with url: {url}")
+        if self.__selfmanaged:
+            self.refreshToken()
+        try:
+            _body = json.dumps(data).encode('utf-8')
+            _headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {self.__access_token}',
+                'grpc-metadata-x-user-id': self.__id_token,
+                'grpc-metadata-x-refresh-token': self.__refresh_token
+            }
+
+            with requests.post(url, headers=_headers, data=_body) as _response:
+                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
+                    _item = json.loads(_response.text)
+                    return _item
+                else:
+                    print(f"Error {_response.status_code} when running http post: {_response.reason} - {_response.text}\n")
+                    return None
+        except HTTPError as e:
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
+            if e.close == 409:
+                raise HTTPError("Can not post request as it wold create a conflict", 409)
+        except URLError as e:
+            print(f'URL Error code: {e.code} descripton {e.reason}')
+
+        return None
+
+    # general HTTP Put. Requires data payload in JSON format
+    def __put(self, url, data):
+        print(f"Executing HTTP Post with url {url}")
+        if self.__selfmanaged:
+            self.refreshToken()
+        try:
+            _body = json.dumps(data).encode('utf-8')
+            _headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {self.__access_token}',
+                'grpc-metadata-x-user-id': self.__id_token,
+                'grpc-metadata-x-refresh-token': self.__refresh_token
+            }
+
+            with requests.put(url, headers=_headers, data=_body) as _response:
+                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
+                    _item = json.loads(_response.text)
+                    return _item
+                else:
+                    print(f"Error {_response.status_code} when running http put: {_response.reason} - {_response.text}\n")
+                    return None
+        except HTTPError as e:
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
+            if e.close == 409:
+                raise HTTPError("Can not post request as it wold create a conflict", 409)
+        except URLError as e:
+            print(f'URL Error code: {e.code} descripton {e.reason}')
+
+        return None
+
+    # general HTTP delete routine
+    def __delete(self, url):
+        print(f"Executing HTTP Delete with url {url}")
+        if self.__selfmanaged:
+            self.refreshToken()
+        try:
+            _headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {self.__access_token}',
+                'grpc-metadata-x-user-id': self.__id_token,
+                'grpc-metadata-x-refresh-token': self.__refresh_token
+            }
+
+            with requests.delete(url, headers=_headers, auth=('', self.__access_token)) as _response:
+                if _response.status_code == 200 or _response.status_code == 201 or _response.status_code == 202:
+                    return _response.text
+                else:
+                    print(f"Error {_response.status_code} when running http delete: {_response.reason} - {_response.text}\n")
+                    return None
+        except HTTPError as e:
+            print(f'HTTP Error code: {e.code} descripton {e.reason}')
+        except URLError as e:
+            print(f'URL Error code: {e.code} descripton {e.reason}')
+
+        return None
 
     # Get specified Cluster Details
     def getCluster(self, clusterName, provisionerName, managementCluster):
@@ -849,15 +895,25 @@ def handler(context, inputs):
     print (f"Running orchestrator action: {_action}")
 
     outputs = []
-    _host = os.environ.get("host") or 'tmc.tanzu.rocks'
-    _username = os.environ.get("username") or 'david'
-    _password = os.environ.get("password") or 'B3ach8um!'
 
+    _selfmanaged = os.environ.get("selfmanaged") or "false"
+
+    if _selfmanaged.lower() == "true" or _selfmanaged == "1":
+        _host = os.environ.get("host") or 'tmc.tanzu.rocks'
+        _username = os.environ.get("username") or 'david'
+        _password = os.environ.get("password") or 'B3ach8um!'
+        _client = TMCClient(selfmanaged=True, hostname=_host, username=_username, password=_password)
+        _managementcluster = inputs.get('managementcluster') or 'supervisor1'
+    else:
+        _host = os.environ.get("host") or 'mapbuapj.tmc.cloud.vmware.com'
+        _apikey = os.environ.get("api_key") or '4NSKUMr-LBj3PNK6AraHfCBwAep5R59kpLAlRRxHfsad-4DMj-cdyHGyvYUO2tMB'
+        _client = TMCClient(selfmanaged=False, hostname=_host, apikey=_apikey)
+        _managementcluster = inputs.get('managementcluster') or 'lloydd-lab'
+
+ 
     _platform = inputs.get('platform') or 'tkgs'
-    _managementcluster = inputs.get('managementcluster') or 'supervisor1'
     _provisioner = inputs.get('provisioner') or '*'
 
-    _client = TMCClient(hostname=_host, username=_username, password=_password)
 
     match _action:
         case "cluster-create":
@@ -900,8 +956,11 @@ def handler(context, inputs):
             if(_response := _client.getClusterList()) is not None:
                 outputs = [c["fullName"]["name"] for c in _response]
         case "form-provisionerlist":
-            if (_response := _client.getProvisionerList(_managementcluster)) is not None:        
-                outputs = [c["fullName"]["name"] for c in _response]
+            if (_response := _client.getProvisionerList(_managementcluster)) is not None:
+                for _item in _response:
+                    _name = _item["fullName"]["name"]
+                    if not _name.startswith('svc-'):
+                        outputs.append(_name)
         case "form-versionlist":
             outputs =  _client.getKubernetesReleases(_platform, _managementcluster, _provisioner)
         case "form-nodesizelist":
